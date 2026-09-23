@@ -1,0 +1,11 @@
+name = "www-redirect"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# 只在下面的自定义路由上生效，不额外发布 xxx.workers.dev 地址
+workers_dev = false
+
+# 接管 www.za4ever.com 的全部请求
+routes = [
+  { pattern = "www.za4ever.com/*", zone_name = "za4ever.com" }
+]

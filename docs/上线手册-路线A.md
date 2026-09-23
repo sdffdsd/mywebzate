@@ -21,14 +21,14 @@
 | 步骤 6 HTTPS | ✅ Always Use HTTPS = on；最低 TLS = 1.2；SSL 模式 = full |
 | 正式地址 | **https://za4ever.com**（`http://` 会 301 到 `https://`） |
 | 临时地址 | https://personal-site-btm.pages.dev（保留作为技术入口，别对外宣传） |
-| 步骤 5 `www` 301 | ⬜ **未完成**：手头的 API Token 缺 `Zone → Config Rules → Edit` 权限，Redirect Rule 建不了 |
+| 步骤 5 `www` 301 | ✅ 已用 **Worker 路由**实现（`workers/www-redirect`）：`www` → 301 → apex，路径与查询串都保留 |
 | 步骤 7 自检 | ✅ 页面/404/API/KV/缓存头 均已实测通过；Range 见下方"已知限制" |
 | 步骤 8 拨测 | 🟡 已有一条真实数据点（你这条网络直连 Cloudflare）：TCP 145ms / TLS 300ms / TTFB 0.50–0.67s；多线路 itdog 拨测待做 |
 | 待办（可选） | 在 Cloudflare 控制台把 Pages 项目连上 GitHub 仓库，实现"推送即部署"；现在改动后需手动跑 `npm run deploy:cf` |
 
 **权限分工说明**：`wrangler` 的 OAuth 凭据只有 `pages:write` / `workers_*` / `zone:read`，
-改不了 DNS 与 zone 设置；为此单独建了一枚 API Token（仅 Zone 级权限）用来写 DNS 与 HTTPS 设置。
-该 Token 缺 `Zone → Config Rules → Edit`，所以 `www` 的 Redirect Rule 还建不了。
+改不了 DNS 与 zone 设置；为此临时用了一枚只含 Zone 权限的 API Token 来写 DNS 与 HTTPS 设置。
+`www` 的 301 改用 Worker 路由实现后，这枚 Token 已不再需要（用完即从本机删除）。
 
 **已创建的 DNS 记录**（无需再手动添加）：
 
@@ -37,22 +37,28 @@
 | CNAME | `za4ever.com` | `personal-site-btm.pages.dev` | 已代理（橙云） |
 | CNAME | `www` | `za4ever.com` | 已代理（橙云） |
 
-> ⚠️ 因为 `www` 已经作为自定义域名绑定到 Pages，它现在会**直接打开站点**而不是跳转。
-> 想让 `www` 变成 301 跳转到 apex，二选一：
+**`www` 的 301 是怎么做的（做法 B，已落地）**
 
-- **做法 A（推荐，与官方文档一致，零额外基础设施）**：给 API Token 补上
-  `Zone → Config Rules → Edit` 权限，然后跑一次
-  `PUT /zones/{zone_id}/rulesets/phases/http_request_dynamic_redirect/entrypoint`：
-  ```json
-  {"rules":[{"action":"redirect","description":"www to apex 301",
-    "expression":"(http.host eq \"www.za4ever.com\")",
-    "action_parameters":{"from_value":{"status_code":301,
-      "target_url":{"expression":"concat(\"https://za4ever.com\", http.request.uri.path)"},
-      "preserve_query_string":true}}}]}
-  ```
-  或在控制台 **Rules → Redirect Rules → Create rule** 手点同样的内容。
-- **做法 B（不需要额外权限）**：用 Workers 路由接管 `www.za4ever.com/*` 返回 301。
-  wrangler 凭据里有 `workers_routes:write`，可以完全脚本化，代价是账户里多一个 Worker。
+用 Workers 路由接管 `www.za4ever.com/*`，返回 301 到 apex：
+
+- 代码：`workers/www-redirect/`（配置 + 20 行 JS），部署命令 `npm run deploy:www-redirect`
+- **踩到的坑**：`www` 一开始也被绑成了 Pages 自定义域名，此时 **Pages 自定义域名的优先级高于 Worker 路由**，
+  www 仍然直接返回站点内容（200）而不是跳转。
+  **必须先把 `www` 从 Pages 项目的 Custom domains 里移除**，Worker 路由才会接管。
+- 实测结果：`/notes/?a=1` → `301` → `https://za4ever.com/notes/?a=1`（路径与查询串保留）
+
+**如果想换成官方 Redirect Rule（做法 A）**：给 API Token 补上 `Zone → Config Rules → Edit` 权限，
+然后调用 `PUT /zones/{zone_id}/rulesets/phases/http_request_dynamic_redirect/entrypoint`：
+
+```json
+{"rules":[{"action":"redirect","description":"www to apex 301",
+  "expression":"(http.host eq \"www.za4ever.com\")",
+  "action_parameters":{"from_value":{"status_code":301,
+    "target_url":{"expression":"concat(\"https://za4ever.com\", http.request.uri.path)"},
+    "preserve_query_string":true}}}]}
+```
+
+或在控制台 **Rules → Redirect Rules → Create rule** 手点同样内容；之后删掉这个 Worker 与路由即可。
 
 **已知限制（实测）**：Cloudflare Pages 对 `Range` 请求返回 `200` 完整文件而非 `206`，
 所以音频文件要控制体积（几 MB 内），需要真流式播放请放 R2 或自有服务器。
