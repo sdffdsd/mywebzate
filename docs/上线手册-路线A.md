@@ -24,7 +24,7 @@
 | 步骤 5 `www` 301 | ✅ 已用 **Worker 路由**实现（`workers/www-redirect`）：`www` → 301 → apex，路径与查询串都保留 |
 | 步骤 7 自检 | ✅ 页面/404/API/KV/缓存头 均已实测通过；Range 见下方"已知限制" |
 | 步骤 8 拨测 | 🟡 已有一条真实数据点（你这条网络直连 Cloudflare）：TCP 145ms / TLS 300ms / TTFB 0.50–0.67s；多线路 itdog 拨测待做 |
-| 待办（可选） | 在 Cloudflare 控制台把 Pages 项目连上 GitHub 仓库，实现"推送即部署"；现在改动后需手动跑 `npm run deploy:cf` |
+| 推送即部署 | 🟡 CI 已配好（`.github/workflows/deploy.yml`）：push 会构建，**部署步骤在 secrets 就绪后自动生效**（未配置时跳过，CI 仍为绿，已实测）。<br>本项目是 **Direct Upload 项目**，Cloudflare 不允许转成 Git 集成（API 报 `You cannot update the source object in a Direct Uploads project`），因此走 GitHub Actions 路线。<br>**只差一步**：加仓库 secret `CLOUDFLARE_API_TOKEN`（Account → Cloudflare Pages → Edit）与 `CLOUDFLARE_ACCOUNT_ID`（`92d5d12e48bb0bd92f08f35da8628b59`） |
 
 **权限分工说明**：`wrangler` 的 OAuth 凭据只有 `pages:write` / `workers_*` / `zone:read`，
 改不了 DNS 与 zone 设置；为此临时用了一枚只含 Zone 权限的 API Token 来写 DNS 与 HTTPS 设置。
