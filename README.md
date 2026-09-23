@@ -61,7 +61,7 @@ personal-site/
 | 动效 | `three` / `gsap` 全部动态 `import()` | 动效库不进首屏关键路径 |
 | 降级 | `prefers-reduced-motion` 下连动效库都不下载 | 无障碍与弱网是同一个问题 |
 | 图片 | 构建期 AVIF + 多尺寸 + lazy | 源图 1600px 也能压到几十 KB |
-| 音频 | `preload="none"` + Range 206 | 不点播放就一个字节不下 |
+| 音频 | `preload="none"`，点击才加载 | 不点播放就一个字节不下；Pages 不返回 206，音频文件要控制体积 |
 | 函数 | 标准 `fetch` handler，KV 通过接口注入 | 换托管方（CF ↔ Node）业务代码零改动 |
 | 缓存 | hash 资源 `immutable` 一年，HTML 不缓存 | 改版即时生效，静态资源拉满缓存 |
 

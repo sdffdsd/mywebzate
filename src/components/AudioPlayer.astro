@@ -9,7 +9,7 @@
     <h2>音频与实时频谱</h2>
     <p class="lead">
       预加载策略是 <code>none</code>：页面打开时一个字节的音频都不下。
-      点击播放后才开始按 Range 拉流，同时用 Web Audio 的 AnalyserNode 画出实时频谱。
+      点击播放后才开始加载音频，同时用 Web Audio 的 AnalyserNode 画出实时频谱。
     </p>
 
     <div class="player card" data-player>
@@ -47,7 +47,9 @@
 
       <p class="muted player__note">
         替换方式：把音频丢进 <code>public/audio/</code>，改上面的 <code>src</code> 即可。
-        单文件建议 ≤ 25MB；再大就放对象存储（腾讯云 COS / Cloudflare R2）走同一套缓存策略。
+        注意：Cloudflare Pages 对 Range 请求返回 200（整体下载），拖动进度条需要等文件下完，
+        所以单文件建议控制在几 MB 以内；要做真正的流式播放，就把音频放到 Cloudflare R2
+        或自有服务器上（仓库里的 <code>server/index.mjs</code> 已正确实现 206 分片响应）。
       </p>
     </div>
   </div>

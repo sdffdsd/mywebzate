@@ -1,5 +1,12 @@
 # Cloudflare Pages 响应头策略（部署时自动生效，无需在控制台配置）
-# 目标：带 hash 的静态资源永久缓存，HTML 不缓存，音频支持 Range 流式播放。
+#
+# ⚠️ 目录名必须和 Astro 的实际输出目录一致：
+#    本项目 astro.config.mjs 未设置 build.assets，所以带 hash 的资源在 /_astro/* 下。
+#    （曾经这里写成 /_assets/*，导致 immutable 缓存完全没生效。）
+#    改动 build.assets 后记得同步改这里。
+#
+# ⚠️ 这里不声明 Accept-Ranges：Range（音频拖动进度条）由 Cloudflare 侧决定，
+#    实测 *.pages.dev 对 Range 请求返回 200 完整文件而非 206，声明它等于给出错误承诺。
 
 /*
   X-Content-Type-Options: nosniff
@@ -7,12 +14,11 @@
   Permissions-Policy: geolocation=(), microphone=(), camera=()
   X-Frame-Options: SAMEORIGIN
 
-/_assets/*
+/_astro/*
   Cache-Control: public, max-age=31536000, immutable
 
 /audio/*
   Cache-Control: public, max-age=604800
-  Accept-Ranges: bytes
 
 /*.html
   Cache-Control: public, max-age=0, must-revalidate

@@ -8,13 +8,30 @@
 
 ---
 
+## 当前进度（已完成的不用再做）
+
+| 项 | 状态 |
+| --- | --- |
+| 代码仓库 | ✅ 已推送到 https://github.com/sdffdsd/mywebzate（公开） |
+| 步骤 2 KV | ✅ 命名空间 `VISITS` 已创建并绑定（id `6636d926f3164259bb5955623a736a32`） |
+| 步骤 3 Pages 项目 | ✅ 项目 `personal-site` 已创建，已通过 `wrangler pages deploy` 部署成功 |
+| 线上地址 | **https://personal-site-btm.pages.dev**（`-btm` 是 Cloudflare 加的，因为 `personal-site` 子域被占用） |
+| 步骤 7 自检 | ✅ 页面/404/API/KV/缓存头 均已实测通过；Range 见下方"已知限制" |
+| 待办 | 步骤 1 域名接入 → 步骤 4 绑域名 → 步骤 5 `www` 跳转 → 步骤 6 SSL 细项 → 步骤 8 拨测 |
+| 待办（可选） | 在 Cloudflare 控制台把 Pages 项目连上 GitHub 仓库，实现"推送即部署"；现在改动后需手动跑 `npm run deploy:cf` |
+
+**已知限制（实测）**：Cloudflare Pages 对 `Range` 请求返回 `200` 完整文件而非 `206`，
+所以音频文件要控制体积（几 MB 内），需要真流式播放请放 R2 或自有服务器。
+
+---
+
 ## 进度总览
 
 | # | 步骤 | 耗时 | 卡点 |
 | --- | --- | --- | --- |
 | 1 | 域名接入 Cloudflare（zone + 改 NS） | 10 分钟 + 等待生效 | NS 生效最长 24h |
-| 2 | 创建 KV 命名空间并填 ID | 3 分钟 | 不填则计数不持久（不阻塞上线） |
-| 3 | 创建 Pages 项目（Git 集成或本地直传） | 10 分钟 | 需要 GitHub 仓库 |
+| 2 | 创建 KV 命名空间并填 ID ✅ | 3 分钟 | 不填则计数不持久（不阻塞上线） |
+| 3 | 创建 Pages 项目 ✅（Git 集成或本地直传） | 10 分钟 | 需要 GitHub 仓库 |
 | 4 | 绑定 apex 自定义域名 | 5 分钟 | 证书签发最长 15 分钟 |
 | 5 | `www` → apex 301 | 5 分钟 | 需要 Bulk Redirects |
 | 6 | SSL / 安全设置 | 5 分钟 | HSTS 最后再开 |
@@ -188,8 +205,10 @@ curl -I https://www.example.com/
 - [ ] 静态资源缓存正确：
       `curl -I https://example.com/_astro/<任意带 hash 的文件>` → `cache-control: public, max-age=31536000, immutable`
 - [ ] HTML 不缓存：`curl -I https://example.com/` → `cache-control: public, max-age=0, must-revalidate`
-- [ ] 音频支持拖动（206）：
-      `curl -I -H 'Range: bytes=0-1023' https://example.com/audio/demo.wav`
+- [ ] 音频可播放（点击后有声音、频谱在动）：
+      `curl -I https://example.com/audio/demo.wav` → `200` + `cache-control: public, max-age=604800`
+- [ ] 已知限制：Cloudflare Pages 对 `Range` 请求返回 **200 完整文件**而不是 206（实测三种资源都如此），
+      所以音频要控制体积；需要真正的流式拖动就把音频放到 R2 或自有服务器
 - [ ] DevTools（Network: Slow 4G，Performance: CPU 4× 降速）刷新，**LCP < 2.5s**
 - [ ] 手机实测：微信内打开、Safari、Chrome 各一次
 
