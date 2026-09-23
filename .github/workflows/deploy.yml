@@ -1,11 +1,9 @@
 name: deploy
 
 on:
-  # push 只做「构建」，不部署 —— 因为部署所需的 secrets 还没配置，
-  # 若在这里直接部署，每次推送都会红。
+  # 推送即构建；部署在 secrets 配好后会自动执行，未配置时自动跳过（CI 仍为绿）
   push:
     branches: [main]
-  # 手动触发（Actions 页面 → Run workflow）才会真正执行部署
   workflow_dispatch:
 
 concurrency:
@@ -38,15 +36,20 @@ jobs:
           path: dist
           retention-days: 7
 
-  # ---- 主线：Cloudflare Pages（免费，海外 + 大部分国内网络）----
-  # 注意：用 Cloudflare Pages 的 Git 集成时，部署由 Cloudflare 自己完成，
-  # 这个 job 只作为备选（手动触发）。想让它跟着 push 自动跑：
-  #   1) 在仓库 Settings → Secrets 配好 CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID
-  #   2) 删掉下面那行 if
+  # ---- Cloudflare Pages 部署：实现"推送即部署" ----
+  # 为什么走 Actions 而不是 Pages 的 Git 集成：本项目是用 wrangler 直传创建的
+  # Direct Upload 项目，Cloudflare 不允许把它的 source 改成 Git（API 会报
+  # "You cannot update the source object in a Direct Uploads project"）。
+  #
+  # 一次配置，之后推送即部署（配好前这一步自动跳过，CI 不会红）：
+  #   仓库 Settings → Secrets and variables → Actions → New repository secret
+  #     CLOUDFLARE_API_TOKEN = 一枚权限为 Account → Cloudflare Pages → Edit 的 API Token
+  #     CLOUDFLARE_ACCOUNT_ID = 92d5d12e48bb0bd92f08f35da8628b59
   deploy-cloudflare:
     needs: build
-    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+    env:
+      CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -54,12 +57,17 @@ jobs:
           path: dist
 
       - name: 推送到 Cloudflare Pages
+        if: ${{ env.CF_API_TOKEN != '' }}
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --project-name=${{ vars.CF_PAGES_PROJECT || 'personal-site' }}
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 未配置 secrets 时的提示
+        if: ${{ env.CF_API_TOKEN == '' }}
+        run: echo "::notice::尚未配置 CLOUDFLARE_API_TOKEN，已跳过部署；构建产物见本页 Artifacts"
 
   # ---- 备用出口：香港 / 境外 VPS（不备案方案下国内直连更稳）----
   # 需要：vars.ENABLE_VPS = 'true'，secrets.DEPLOY_HOST / DEPLOY_USER / DEPLOY_SSH_KEY
