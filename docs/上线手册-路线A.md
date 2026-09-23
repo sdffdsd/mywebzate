@@ -12,13 +12,26 @@
 
 | 项 | 状态 |
 | --- | --- |
+| 步骤 1 域名 | ✅ `za4ever.com` 已注册，NS 已指向 Cloudflare（janet/toby），zone 状态 **active**（Free 套餐）<br>zone id `c57ffacb2430d70b227a140100f001f4` |
 | 代码仓库 | ✅ 已推送到 https://github.com/sdffdsd/mywebzate（公开） |
 | 步骤 2 KV | ✅ 命名空间 `VISITS` 已创建并绑定（id `6636d926f3164259bb5955623a736a32`） |
 | 步骤 3 Pages 项目 | ✅ 项目 `personal-site` 已创建，已通过 `wrangler pages deploy` 部署成功 |
-| 线上地址 | **https://personal-site-btm.pages.dev**（`-btm` 是 Cloudflare 加的，因为 `personal-site` 子域被占用） |
+| 步骤 4 绑域名 | 🟡 `za4ever.com` 已添加到 Pages 自定义域名（状态 `pending`）<br>**卡在缺 DNS 记录**：API 不会自动创建，需在控制台加一条 CNAME |
+| 线上地址（临时） | **https://personal-site-btm.pages.dev**（`-btm` 是 Cloudflare 加的，因为 `personal-site` 子域被占用） |
 | 步骤 7 自检 | ✅ 页面/404/API/KV/缓存头 均已实测通过；Range 见下方"已知限制" |
-| 待办 | 步骤 1 域名接入 → 步骤 4 绑域名 → 步骤 5 `www` 跳转 → 步骤 6 SSL 细项 → 步骤 8 拨测 |
+| 待办 | 加 apex 的 CNAME 记录 → 等证书签发 → 加 `www` 记录 + 301 跳转 → 打开 Always Use HTTPS → 步骤 8 拨测 |
 | 待办（可选） | 在 Cloudflare 控制台把 Pages 项目连上 GitHub 仓库，实现"推送即部署"；现在改动后需手动跑 `npm run deploy:cf` |
+
+**剩下这几步为什么没做完**：`wrangler` 的 OAuth 凭据只有 Workers/Pages 权限，
+**没有 zone 级权限**（DNS 记录、Redirect Rules、SSL/HTTPS 设置都改不了），
+所以这几步必须在 Cloudflare 控制台点（或另建一枚带 Zone 权限的 API Token）。
+
+**需要手动添加的 DNS 记录**：
+
+| 类型 | 名称 | 目标 | 代理 |
+| --- | --- | --- | --- |
+| CNAME | `@`（即 za4ever.com） | `personal-site-btm.pages.dev` | 已代理（橙云） |
+| CNAME | `www` | `za4ever.com` | 已代理（橙云） |
 
 **已知限制（实测）**：Cloudflare Pages 对 `Range` 请求返回 `200` 完整文件而非 `206`，
 所以音频文件要控制体积（几 MB 内），需要真流式播放请放 R2 或自有服务器。
