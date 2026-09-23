@@ -12,26 +12,47 @@
 
 | 项 | 状态 |
 | --- | --- |
-| 步骤 1 域名 | ✅ `za4ever.com` 已注册，NS 已指向 Cloudflare（janet/toby），zone 状态 **active**（Free 套餐）<br>zone id `c57ffacb2430d70b227a140100f001f4` |
+| 步骤 1 域名 | ✅ `za4ever.com` 已注册，NS 已指向 Cloudflare（janet/toby），zone **active**（Free 套餐）<br>zone id `c57ffacb2430d70b227a140100f001f4` |
+| DNS 记录 | ✅ `za4ever.com` 与 `www` 两条 CNAME 已创建（橙云代理），权威解析已生效 |
 | 代码仓库 | ✅ 已推送到 https://github.com/sdffdsd/mywebzate（公开） |
 | 步骤 2 KV | ✅ 命名空间 `VISITS` 已创建并绑定（id `6636d926f3164259bb5955623a736a32`） |
 | 步骤 3 Pages 项目 | ✅ 项目 `personal-site` 已创建，已通过 `wrangler pages deploy` 部署成功 |
-| 步骤 4 绑域名 | 🟡 `za4ever.com` 已添加到 Pages 自定义域名（状态 `pending`）<br>**卡在缺 DNS 记录**：API 不会自动创建，需在控制台加一条 CNAME |
-| 线上地址（临时） | **https://personal-site-btm.pages.dev**（`-btm` 是 Cloudflare 加的，因为 `personal-site` 子域被占用） |
+| 步骤 4 绑域名 | ✅ apex 状态 **active**，边缘证书已签发（Google Trust Services，`CN=za4ever.com`）<br>`www.za4ever.com` 也已绑定到同一个 Pages 项目 |
+| 步骤 6 HTTPS | ✅ Always Use HTTPS = on；最低 TLS = 1.2；SSL 模式 = full |
+| 正式地址 | **https://za4ever.com**（`http://` 会 301 到 `https://`） |
+| 临时地址 | https://personal-site-btm.pages.dev（保留作为技术入口，别对外宣传） |
+| 步骤 5 `www` 301 | ⬜ **未完成**：手头的 API Token 缺 `Zone → Config Rules → Edit` 权限，Redirect Rule 建不了 |
 | 步骤 7 自检 | ✅ 页面/404/API/KV/缓存头 均已实测通过；Range 见下方"已知限制" |
-| 待办 | 加 apex 的 CNAME 记录 → 等证书签发 → 加 `www` 记录 + 301 跳转 → 打开 Always Use HTTPS → 步骤 8 拨测 |
+| 步骤 8 拨测 | 🟡 已有一条真实数据点（你这条网络直连 Cloudflare）：TCP 145ms / TLS 300ms / TTFB 0.50–0.67s；多线路 itdog 拨测待做 |
 | 待办（可选） | 在 Cloudflare 控制台把 Pages 项目连上 GitHub 仓库，实现"推送即部署"；现在改动后需手动跑 `npm run deploy:cf` |
 
-**剩下这几步为什么没做完**：`wrangler` 的 OAuth 凭据只有 Workers/Pages 权限，
-**没有 zone 级权限**（DNS 记录、Redirect Rules、SSL/HTTPS 设置都改不了），
-所以这几步必须在 Cloudflare 控制台点（或另建一枚带 Zone 权限的 API Token）。
+**权限分工说明**：`wrangler` 的 OAuth 凭据只有 `pages:write` / `workers_*` / `zone:read`，
+改不了 DNS 与 zone 设置；为此单独建了一枚 API Token（仅 Zone 级权限）用来写 DNS 与 HTTPS 设置。
+该 Token 缺 `Zone → Config Rules → Edit`，所以 `www` 的 Redirect Rule 还建不了。
 
-**需要手动添加的 DNS 记录**：
+**已创建的 DNS 记录**（无需再手动添加）：
 
 | 类型 | 名称 | 目标 | 代理 |
 | --- | --- | --- | --- |
-| CNAME | `@`（即 za4ever.com） | `personal-site-btm.pages.dev` | 已代理（橙云） |
+| CNAME | `za4ever.com` | `personal-site-btm.pages.dev` | 已代理（橙云） |
 | CNAME | `www` | `za4ever.com` | 已代理（橙云） |
+
+> ⚠️ 因为 `www` 已经作为自定义域名绑定到 Pages，它现在会**直接打开站点**而不是跳转。
+> 想让 `www` 变成 301 跳转到 apex，二选一：
+
+- **做法 A（推荐，与官方文档一致，零额外基础设施）**：给 API Token 补上
+  `Zone → Config Rules → Edit` 权限，然后跑一次
+  `PUT /zones/{zone_id}/rulesets/phases/http_request_dynamic_redirect/entrypoint`：
+  ```json
+  {"rules":[{"action":"redirect","description":"www to apex 301",
+    "expression":"(http.host eq \"www.za4ever.com\")",
+    "action_parameters":{"from_value":{"status_code":301,
+      "target_url":{"expression":"concat(\"https://za4ever.com\", http.request.uri.path)"},
+      "preserve_query_string":true}}}]}
+  ```
+  或在控制台 **Rules → Redirect Rules → Create rule** 手点同样的内容。
+- **做法 B（不需要额外权限）**：用 Workers 路由接管 `www.za4ever.com/*` 返回 301。
+  wrangler 凭据里有 `workers_routes:write`，可以完全脚本化，代价是账户里多一个 Worker。
 
 **已知限制（实测）**：Cloudflare Pages 对 `Range` 请求返回 `200` 完整文件而非 `206`，
 所以音频文件要控制体积（几 MB 内），需要真流式播放请放 R2 或自有服务器。
