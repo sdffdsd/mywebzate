@@ -241,7 +241,11 @@ curl -I https://www.example.com/
 - [ ] 首页 / `/notes` / `/notes/why-static/` / 任意不存在的路径（应出 404 页面）都能正常访问
 - [ ] `/api/visit` 返回 JSON：`curl https://example.com/api/visit`
 - [ ] 页脚「本站访客」显示数字（说明 Function 与 KV 都通了）
-- [ ] 立刻刷新一次，数字**不再 +1**（同 IP 30 秒节流生效）
+- [ ] 刷新页面，页脚数字**不再 +1**（靠前端 `sessionStorage` 去重）
+      ⚠️ 实测补充：服务端的 30 秒节流是**单实例内存**实现，Cloudflare 会在多个 isolate 间分配请求，
+      所以**跨实例不保证节流**；真正的去重靠前端 `sessionStorage`。用 `curl` 连续打两次
+      `?inc=1` 会看到 +2，这是预期行为，不是 bug。
+      ⚠️ 另：调试时**不要伪造 `cf-connecting-ip` 头**，Cloudflare 会直接返回 `error code: 1000`。
 - [ ] 静态资源缓存正确：
       `curl -I https://example.com/_astro/<任意带 hash 的文件>` → `cache-control: public, max-age=31536000, immutable`
 - [ ] HTML 不缓存：`curl -I https://example.com/` → `cache-control: public, max-age=0, must-revalidate`
