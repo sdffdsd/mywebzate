@@ -1,0 +1,166 @@
+---
+// 演示音频是脚本合成的（CC0）。换成你自己的作品时，
+// 建议 mp3（兼容兜底）+ opus（更小）双份，并用 <source> 让浏览器自己挑。
+---
+
+<section class="sound" id="sound">
+  <div class="container">
+    <p class="eyebrow">Sound</p>
+    <h2>音频与实时频谱</h2>
+    <p class="lead">
+      预加载策略是 <code>none</code>：页面打开时一个字节的音频都不下。
+      点击播放后才开始按 Range 拉流，同时用 Web Audio 的 AnalyserNode 画出实时频谱。
+    </p>
+
+    <div class="player card" data-player>
+      <audio
+        id="demo-audio"
+        src="/audio/demo.wav"
+        preload="none"
+        crossorigin="anonymous"
+        data-audio
+      ></audio>
+
+      <canvas class="player__viz" data-viz aria-hidden="true"></canvas>
+
+      <div class="player__row">
+        <button class="player__toggle" type="button" data-toggle aria-label="播放">▶</button>
+
+        <div class="player__meta">
+          <span class="player__title">Ambient Drift <span class="muted">(示例 · CC0)</span></span>
+          <span class="player__time muted" data-time>0:00 / 0:00</span>
+        </div>
+      </div>
+
+      <div
+        class="player__bar"
+        data-bar
+        role="slider"
+        tabindex="0"
+        aria-label="播放进度"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="0"
+      >
+        <span class="player__fill" data-fill></span>
+      </div>
+
+      <p class="muted player__note">
+        替换方式：把音频丢进 <code>public/audio/</code>，改上面的 <code>src</code> 即可。
+        单文件建议 ≤ 25MB；再大就放对象存储（腾讯云 COS / Cloudflare R2）走同一套缓存策略。
+      </p>
+    </div>
+  </div>
+</section>
+
+<script>
+  import { initAudioPlayer } from '../scripts/audio-player.ts';
+
+  const audio = document.querySelector<HTMLAudioElement>('[data-audio]');
+  const canvas = document.querySelector<HTMLCanvasElement>('[data-viz]');
+  const toggle = document.querySelector<HTMLButtonElement>('[data-toggle]');
+  const bar = document.querySelector<HTMLElement>('[data-bar]');
+  const fill = document.querySelector<HTMLElement>('[data-fill]');
+  const time = document.querySelector<HTMLElement>('[data-time]');
+
+  if (audio && canvas && toggle && bar && fill && time) {
+    initAudioPlayer({ audio, canvas, toggle, bar, fill, time });
+  }
+</script>
+
+<style>
+  .sound {
+    padding-block: clamp(3.5rem, 9vw, 7rem);
+  }
+
+  .player {
+    margin-top: 2rem;
+    display: grid;
+    gap: 1rem;
+    max-width: 780px;
+  }
+
+  .player__viz {
+    width: 100%;
+    height: clamp(120px, 20vw, 168px);
+    border-radius: var(--radius-sm);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.05));
+  }
+
+  .player__row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .player__toggle {
+    flex: 0 0 auto;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 1px solid rgba(110, 231, 255, 0.5);
+    background: rgba(110, 231, 255, 0.1);
+    color: var(--accent);
+    font-size: 1rem;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    transition: transform 0.2s var(--ease), background 0.2s;
+  }
+
+  .player__toggle:hover {
+    transform: scale(1.05);
+    background: rgba(110, 231, 255, 0.18);
+  }
+
+  .player__toggle[data-playing='true'] {
+    background: linear-gradient(120deg, var(--accent), var(--accent-2));
+    color: #05070c;
+    border-color: transparent;
+  }
+
+  .player__meta {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.4;
+  }
+
+  .player__title {
+    font-size: 0.98rem;
+  }
+
+  .player__time {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+  }
+
+  .player__bar {
+    position: relative;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+    touch-action: none;
+  }
+
+  .player__fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 0;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  }
+
+  .player__note {
+    margin: 0;
+    font-size: 0.84rem;
+  }
+
+  .sound code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 0.1em 0.4em;
+    border-radius: 6px;
+  }
+</style>

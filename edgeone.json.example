@@ -1,0 +1,7 @@
+{
+  "_comment": "EdgeOne Pages 备用出口配置示例。字段名请以控制台实际文档为准（本文件仅示意构建与输出目录）。不备案时加速区域只能选『全球可用区（不含中国大陆）』，该区域没有境内节点，国内可达性不会比 Cloudflare 更好 —— 它的价值在于多一条独立出口，避开单一厂商故障。",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "installCommand": "npm ci",
+  "nodeVersion": "22"
+}

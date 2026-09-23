@@ -1,0 +1,73 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+const notes = (await getCollection('notes', ({ data }) => !data.draft)).sort(
+  (a, b) => b.data.date.valueOf() - a.data.date.valueOf(),
+);
+
+const dateFmt = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' });
+---
+
+<BaseLayout title="笔记 · ZAKURA" description="关于静态站点、动效预算与边缘函数的一些记录。">
+  <section class="section">
+    <div class="container">
+      <p class="eyebrow">Notes</p>
+      <h1>笔记</h1>
+      <p class="lead">
+        共 {notes.length} 篇。内容都在 <code>src/content/notes/</code> 下，写成 Markdown 就会自动出现在这里。
+      </p>
+
+      <ul class="list">
+        {
+          notes.map((note) => (
+            <li class="list__item reveal">
+              <a href={`/notes/${note.id}/`}>
+                <time class="muted" datetime={note.data.date.toISOString()}>
+                  {dateFmt.format(note.data.date)}
+                </time>
+                <h2>{note.data.title}</h2>
+                <p>{note.data.summary}</p>
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .list {
+    list-style: none;
+    padding: 0;
+    margin: 3rem 0 0;
+    display: grid;
+    gap: 1rem;
+  }
+
+  .list__item a {
+    display: block;
+    color: inherit;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: clamp(1.1rem, 2.5vw, 1.6rem);
+    background: var(--bg-card);
+    transition: transform 0.3s var(--ease), border-color 0.3s;
+  }
+
+  .list__item a:hover {
+    text-decoration: none;
+    transform: translateX(6px);
+    border-color: rgba(110, 231, 255, 0.45);
+  }
+
+  .list__item h2 {
+    font-size: clamp(1.2rem, 2.4vw, 1.6rem);
+    margin: 0.4rem 0 0.5rem;
+  }
+
+  .list__item p {
+    margin: 0;
+  }
+</style>

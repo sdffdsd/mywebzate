@@ -1,0 +1,18 @@
+# Cloudflare Pages 项目配置（wrangler pages deploy / Pages Git 集成都用这份）
+name = "personal-site"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-09-01"
+
+# 访客计数用 KV。先创建命名空间，再把 id 填回来：
+#   npm run kv:create
+#
+# ⚠️ 这个文件是 Pages 项目的「唯一事实来源」：一旦仓库里存在它，
+#    控制台里对应字段会变为只读，改绑定要改这里再部署。
+#    若你已在控制台配过设置，先执行：npx wrangler pages download config personal-site
+#
+# ⚠️ 不想持久化计数？把下面整段 [[kv_namespaces]] 删掉即可，
+#    /api/visit 会退化为单实例内存计数（网站功能正常，数字会归零）。
+#    千万不要保留这个占位符 id，会导致部署失败。
+[[kv_namespaces]]
+binding = "VISITS"
+id = "REPLA6636d926f3164259bb5955623a736a32"

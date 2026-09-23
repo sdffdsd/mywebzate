@@ -1,0 +1,103 @@
+---
+const nav = [
+  { href: '/', label: '首页' },
+  { href: '/notes', label: '笔记' },
+  { href: '/#sound', label: '声音' },
+];
+
+const path = Astro.url.pathname;
+---
+
+<header class="site-header">
+  <div class="container site-header__inner">
+    <a class="brand" href="/">
+      <span class="brand__dot" aria-hidden="true"></span>
+      <span class="brand__name">ZAKURA<span class="brand__tld">.site</span></span>
+    </a>
+
+    <nav class="nav" aria-label="主导航">
+      {
+        nav.map((item) => {
+          const active = item.href === '/' ? path === '/' : path.startsWith(item.href.replace('/#', '/'));
+          return (
+            <a class:list={['nav__link', { 'nav__link--active': active }]} href={item.href}>
+              {item.label}
+            </a>
+          );
+        })
+      }
+    </nav>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    height: var(--header-h);
+    display: flex;
+    align-items: center;
+    background: rgba(6, 7, 11, 0.72);
+    backdrop-filter: blur(14px) saturate(140%);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .site-header__inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    color: var(--fg);
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    font-size: 0.95rem;
+  }
+
+  .brand:hover {
+    text-decoration: none;
+  }
+
+  .brand__dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: linear-gradient(120deg, var(--accent), var(--accent-2));
+    box-shadow: 0 0 14px rgba(110, 231, 255, 0.8);
+  }
+
+  .brand__tld {
+    color: var(--fg-faint);
+    font-weight: 400;
+  }
+
+  .nav {
+    display: flex;
+    gap: 0.35rem;
+  }
+
+  .nav__link {
+    color: var(--fg-dim);
+    font-size: 0.9rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 999px;
+    transition: color 0.2s, background 0.2s;
+  }
+
+  .nav__link:hover {
+    color: var(--fg);
+    background: rgba(255, 255, 255, 0.06);
+    text-decoration: none;
+  }
+
+  .nav__link--active {
+    color: var(--fg);
+    background: rgba(255, 255, 255, 0.07);
+  }
+</style>

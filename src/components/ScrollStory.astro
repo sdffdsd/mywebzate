@@ -1,0 +1,191 @@
+---
+import { Image } from 'astro:assets';
+import shotA from '../assets/generated/shot-a.png';
+import shotB from '../assets/generated/shot-b.png';
+import shotC from '../assets/generated/shot-c.png';
+
+const panels = [
+  {
+    src: shotA,
+    title: '固定视口 + 横向轨道',
+    body: '滚动被"劫持"成横向位移：GSAP ScrollTrigger 把纵向滚动距离映射为横向 translateX，容器 pin 住不动。',
+    tag: 'GSAP · scrub',
+  },
+  {
+    src: shotB,
+    title: '构建期出 AVIF',
+    body: '同一张源图在构建时生成多尺寸 + 现代格式，浏览器按视口挑最合适的一张，首屏之外全部 lazy。',
+    tag: 'astro:assets',
+  },
+  {
+    src: shotC,
+    title: '可降级的动效',
+    body: 'prefers-reduced-motion 打开时，这段脚本根本不会被加载，横向轨道退化成普通纵向列表。',
+    tag: 'a11y first',
+  },
+];
+---
+
+<section class="story" id="story" data-story>
+  <div class="story__viewport">
+    <header class="story__head container">
+      <p class="eyebrow">Motion</p>
+      <h2>复杂动效，但要能降级</h2>
+      <p class="lead">
+        动效库全部走动态 <code>import()</code>。默认情况下这段页面只是普通的纵向图文列表；
+        只有在支持且用户允许动效时，才会加载 GSAP 并把轨道变成横向长卷。
+      </p>
+      <p class="muted story__hint">↓ 继续滚动，画面会横向推进</p>
+    </header>
+
+    <div class="story__track" data-story-track>
+      {
+        panels.map((panel, i) => (
+          <article class="panel" data-story-panel>
+            <div class="panel__media">
+              <Image
+                src={panel.src}
+                alt=""
+                widths={[420, 840]}
+                sizes="(max-width: 760px) 78vw, 420px"
+                format="avif"
+                loading="lazy"
+                decoding="async"
+              />
+              <span class="panel__index">{String(i + 1).padStart(2, '0')}</span>
+            </div>
+            <div class="panel__body">
+              <span class="panel__tag">{panel.tag}</span>
+              <h3>{panel.title}</h3>
+              <p>{panel.body}</p>
+            </div>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<script>
+  import { initScrollStory } from '../scripts/scroll-story.ts';
+
+  const section = document.querySelector<HTMLElement>('[data-story]');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (section && !reduced) {
+    initScrollStory(section).catch(() => {
+      // GSAP 加载失败就保持普通的纵向列表，页面功能不受影响
+      section.dataset.motion = 'off';
+    });
+  } else if (section) {
+    section.dataset.motion = 'off';
+  }
+</script>
+
+<style>
+  .story {
+    position: relative;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .story[data-motion='off'] .story__head {
+    padding-bottom: 2rem;
+  }
+
+  .story__head {
+    padding-block: clamp(3rem, 8vw, 6rem) 2rem;
+  }
+
+  .story__hint {
+    margin-top: 1.5rem;
+  }
+
+  .story__track {
+    display: grid;
+    gap: clamp(1rem, 3vw, 2rem);
+    padding: 0 clamp(1rem, 4vw, 2rem) clamp(3rem, 8vw, 6rem);
+    grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+    max-width: var(--maxw);
+    margin-inline: auto;
+  }
+
+  /* 动效开启后由 GSAP 接管：单行 flex + 超宽轨道 */
+  .story[data-motion='on'] {
+    overflow: clip;
+  }
+
+  .story[data-motion='on'] .story__viewport {
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .story[data-motion='on'] .story__track {
+    display: flex;
+    flex-wrap: nowrap;
+    width: max-content;
+    gap: clamp(1.5rem, 4vw, 4rem);
+    padding-inline: max(1rem, calc((100vw - var(--maxw)) / 2));
+    will-change: transform;
+  }
+
+  .panel {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg-card);
+    overflow: hidden;
+    max-width: 520px;
+  }
+
+  .story[data-motion='on'] .panel {
+    width: clamp(300px, 34vw, 440px);
+    flex: 0 0 auto;
+  }
+
+  .panel__media {
+    position: relative;
+    line-height: 0;
+  }
+
+  .panel__media :global(img) {
+    width: 100%;
+    height: auto;
+  }
+
+  .panel__index {
+    position: absolute;
+    right: 0.9rem;
+    bottom: 0.7rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  .panel__body {
+    padding: 1.2rem 1.3rem 1.5rem;
+  }
+
+  .panel__tag {
+    display: inline-block;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.6rem;
+  }
+
+  .panel__body p {
+    margin: 0;
+    font-size: 0.94rem;
+  }
+
+  .story code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 0.1em 0.4em;
+    border-radius: 6px;
+  }
+</style>

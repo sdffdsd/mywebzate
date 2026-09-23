@@ -1,0 +1,36 @@
+---
+import { getCollection, render } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+export async function getStaticPaths() {
+  const notes = await getCollection('notes', ({ data }) => !data.draft);
+  return notes.map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+
+const dateFmt = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'long' });
+---
+
+<BaseLayout title={`${entry.data.title} · ZAKURA`} description={entry.data.summary}>
+  <article class="section">
+    <div class="container">
+      <p class="eyebrow">
+        <a href="/notes">← 笔记</a>
+      </p>
+      <h1>{entry.data.title}</h1>
+      <p class="muted">
+        <time datetime={entry.data.date.toISOString()}>{dateFmt.format(entry.data.date)}</time>
+        {entry.data.tags.length > 0 && <span> · {entry.data.tags.join(' / ')}</span>}
+      </p>
+
+      <div class="prose">
+        <Content />
+      </div>
+    </div>
+  </article>
+</BaseLayout>

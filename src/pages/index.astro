@@ -1,0 +1,148 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Hero from '../components/Hero.astro';
+import ScrollStory from '../components/ScrollStory.astro';
+import AudioPlayer from '../components/AudioPlayer.astro';
+
+const notes = (await getCollection('notes', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf())
+  .slice(0, 3);
+
+const capabilities = [
+  {
+    title: '图片',
+    body: '构建期转 AVIF/WebP 并按视口出多尺寸；首屏只加载海报，其余全部 lazy。源图放进 src/assets/ 即可。',
+  },
+  {
+    title: '文字',
+    body: 'Markdown + 内容集合（schema 校验），图文内容与组件解耦，改文字不用碰代码。',
+  },
+  {
+    title: '动效',
+    body: 'WebGL 首屏流场 + GSAP 滚动长卷，全部动态 import、可降级、受 prefers-reduced-motion 控制。',
+  },
+  {
+    title: '音频',
+    body: 'HTML5 音频按需 Range 流式加载，Web Audio 实时频谱，AudioContext 在用户手势内创建。',
+  },
+  {
+    title: '动态接口',
+    body: '同构的 fetch handler：Cloudflare Pages Functions + KV，或任意 Node 机器上的同一份逻辑。',
+  },
+  {
+    title: '国内可达',
+    body: 'Cloudflare 主线 + 境外备份出口，DNS 分线路解析；不备案方案的可达性缓解措施见 docs/。',
+  },
+];
+
+const dateFmt = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' });
+---
+
+<BaseLayout title="ZAKURA · 图片、文字、动效与声音" description="纯静态个人站点：WebGL 动效、AVIF 图片、Web Audio 频谱与边缘函数示例。">
+  <Hero />
+
+  <section class="section">
+    <div class="container">
+      <p class="eyebrow reveal">Capabilities</p>
+      <h2 class="reveal">这一页能承载什么</h2>
+      <p class="lead reveal">
+        六块能力各自独立、都能单独删掉而不影响其他部分。想加内容就加 Markdown，
+        想加效果就加一个 island，不需要动整体架构。
+      </p>
+
+      <div class="grid" style="margin-top: 2.5rem;">
+        {capabilities.map((item) => (
+          <article class="card reveal">
+            <h3>{item.title}</h3>
+            <p>{item.body}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <ScrollStory />
+
+  <AudioPlayer />
+
+  <section class="section" style="padding-top: 0;">
+    <div class="container">
+      <div class="notes-head reveal">
+        <div>
+          <p class="eyebrow">Notes</p>
+          <h2>最近写的</h2>
+        </div>
+        <a class="btn" href="/notes">全部笔记 →</a>
+      </div>
+
+      <div class="grid">
+        {notes.map((note) => (
+          <a class="card note-card reveal" href={`/notes/${note.id}/`}>
+            <time class="muted" datetime={note.data.date.toISOString()}>
+              {dateFmt.format(note.data.date)}
+            </time>
+            <h3>{note.data.title}</h3>
+            <p>{note.data.summary}</p>
+            {note.data.tags.length > 0 && (
+              <ul class="tags">
+                {note.data.tags.map((tag) => (
+                  <li>{tag}</li>
+                ))}
+              </ul>
+            )}
+          </a>
+        ))}
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .notes-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem 2rem;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 2rem;
+  }
+
+  .notes-head h2 {
+    margin-bottom: 0;
+  }
+
+  .note-card {
+    display: block;
+    color: inherit;
+    transition: transform 0.3s var(--ease), border-color 0.3s;
+  }
+
+  .note-card:hover {
+    text-decoration: none;
+    transform: translateY(-4px);
+    border-color: rgba(110, 231, 255, 0.45);
+  }
+
+  .note-card h3 {
+    margin: 0.5rem 0 0.6rem;
+  }
+
+  .tags {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0;
+    margin: 0;
+  }
+
+  .tags li {
+    font-size: 0.74rem;
+    letter-spacing: 0.08em;
+    color: var(--fg-faint);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+  }
+</style>

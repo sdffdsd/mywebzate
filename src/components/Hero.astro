@@ -1,0 +1,240 @@
+---
+import { Image } from 'astro:assets';
+import heroFallback from '../assets/generated/hero-poster.png';
+---
+
+<section class="hero" id="top">
+  <div class="hero__bg" aria-hidden="true">
+    <!-- CSS 渐变 + 构建期 AVIF 兜底：WebGL 不可用时这就是最终背景，体积极小 -->
+    <span class="hero__poster-wrap">
+      <Image
+        src={heroFallback}
+        alt=""
+        widths={[640, 1280]}
+        sizes="100vw"
+        format="avif"
+        loading="eager"
+        fetchpriority="high"
+        decoding="async"
+      />
+    </span>
+    <canvas class="hero__canvas" id="hero-canvas"></canvas>
+    <div class="hero__scrim"></div>
+  </div>
+
+  <div class="container hero__inner">
+    <p class="eyebrow">Image · Type · Motion · Sound</p>
+    <h1 class="hero__title">
+      <span class="hero__line">把图片、文字、</span>
+      <span class="hero__line hero__line--accent">动效与声音</span>
+      <span class="hero__line">放进同一个页面</span>
+    </h1>
+    <p class="lead hero__lead">
+      纯静态构建，无外部字体、无第三方脚本。首屏只有 ~30KB 关键 CSS/JS，
+      WebGL 与音频可视化按需加载，弱网下也能先看到内容。
+    </p>
+    <div class="hero__actions">
+      <a class="btn btn--primary" href="#story">看动效 →</a>
+      <a class="btn" href="#sound">听声音</a>
+    </div>
+  </div>
+
+  <div class="hero__cue" aria-hidden="true">
+    <span class="hero__cue-dot"></span>
+    <span>向下滚动</span>
+  </div>
+</section>
+
+<script>
+  const canvas = document.getElementById('hero-canvas');
+
+  type NetworkInfo = { saveData?: boolean; effectiveType?: string };
+  const conn = (navigator as Navigator & { connection?: NetworkInfo }).connection ?? {};
+
+  // 三件事都必须成立才加载 WebGL：支持、用户没关动效、网络不是省流/慢速
+  const canRun =
+    canvas instanceof HTMLCanvasElement &&
+    !matchMedia('(prefers-reduced-motion: reduce)').matches &&
+    conn.saveData !== true &&
+    !/^(slow-)?2g$|^3g$/.test(conn.effectiveType ?? '');
+
+  if (canRun) {
+    const start = () => {
+      // 动态 import：three.js 只在浏览器空闲时才下载，首屏不背这个包
+      import('../scripts/webgl-hero.ts')
+        .then(({ startHero }) => {
+          const handle = startHero(canvas as HTMLCanvasElement);
+          if (!handle) throw new Error('no-webgl');
+          (canvas as HTMLCanvasElement).dataset.state = 'running';
+        })
+        .catch(() => {
+          (canvas as HTMLCanvasElement).dataset.state = 'fallback';
+        });
+    };
+
+    // 先把海报图渲染出来，等主线程空闲再上 WebGL 并淡入
+    if ('requestIdleCallback' in window) {
+      (window as Window & { requestIdleCallback: (cb: () => void, o?: { timeout: number }) => void })
+        .requestIdleCallback(start, { timeout: 2500 });
+    } else {
+      setTimeout(start, 600);
+    }
+  } else if (canvas instanceof HTMLCanvasElement) {
+    canvas.dataset.state = 'fallback';
+  }
+</script>
+
+<style>
+  .hero {
+    position: relative;
+    min-height: min(92svh, 900px);
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  .hero__bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+  }
+
+  .hero__poster-wrap,
+  .hero__canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .hero__poster-wrap :global(img) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.55;
+    filter: blur(2px);
+  }
+
+  .hero__canvas[data-state='running'] {
+    opacity: 1;
+    transition: opacity 1.2s var(--ease);
+  }
+
+  .hero__canvas[data-state='fallback'] {
+    display: none;
+  }
+
+  .hero__scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      100deg,
+      rgba(6, 7, 11, 0.94) 0%,
+      rgba(6, 7, 11, 0.72) 42%,
+      rgba(6, 7, 11, 0.28) 100%
+    );
+  }
+
+  .hero__inner {
+    position: relative;
+    z-index: 1;
+    padding-block: 6rem;
+  }
+
+  .hero__title {
+    font-size: clamp(2.1rem, 7vw, 4.4rem);
+    margin-bottom: 1.2rem;
+  }
+
+  .hero__line {
+    display: block;
+    opacity: 0;
+    transform: translateY(18px);
+    animation: hero-rise 0.9s var(--ease) forwards;
+  }
+
+  .hero__line:nth-child(1) {
+    animation-delay: 0.05s;
+  }
+
+  .hero__line:nth-child(2) {
+    animation-delay: 0.18s;
+  }
+
+  .hero__line:nth-child(3) {
+    animation-delay: 0.31s;
+  }
+
+  .hero__line--accent {
+    background: linear-gradient(100deg, var(--accent), var(--accent-2) 60%, var(--accent-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .hero__lead {
+    opacity: 0;
+    animation: hero-rise 0.9s var(--ease) 0.45s forwards;
+  }
+
+  .hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+    opacity: 0;
+    animation: hero-rise 0.9s var(--ease) 0.58s forwards;
+  }
+
+  .hero__cue {
+    position: absolute;
+    left: 50%;
+    bottom: 1.6rem;
+    transform: translateX(-50%);
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.78rem;
+    letter-spacing: 0.16em;
+    color: var(--fg-faint);
+    text-transform: uppercase;
+  }
+
+  .hero__cue-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: cue 1.8s ease-in-out infinite;
+  }
+
+  @keyframes hero-rise {
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes cue {
+    0%,
+    100% {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    50% {
+      transform: translateY(6px);
+      opacity: 0.4;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hero__line,
+    .hero__lead,
+    .hero__actions {
+      opacity: 1;
+      transform: none;
+      animation: none;
+    }
+  }
+</style>

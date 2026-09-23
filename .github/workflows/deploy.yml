@@ -1,0 +1,85 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 生成演示素材（若仓库里已提交素材，可删掉这一步）
+        run: npm run gen:assets
+
+      - name: 构建静态产物
+        run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 7
+
+  # ---- 主线：Cloudflare Pages（免费，海外 + 大部分国内网络）----
+  deploy-cloudflare:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: 推送到 Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=${{ vars.CF_PAGES_PROJECT || 'personal-site' }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---- 备用出口：香港 / 境外 VPS（不备案方案下国内直连更稳）----
+  # 需要：vars.ENABLE_VPS = 'true'，secrets.DEPLOY_HOST / DEPLOY_USER / DEPLOY_SSH_KEY
+  deploy-vps:
+    needs: build
+    if: ${{ vars.ENABLE_VPS == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: 准备 SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${{ vars.DEPLOY_PORT || 22 }}" -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: 同步静态文件
+        run: |
+          rsync -avz --delete \
+            -e "ssh -p ${{ vars.DEPLOY_PORT || 22 }} -i ~/.ssh/id_ed25519" \
+            ./dist/ "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ vars.DEPLOY_PATH || '/var/www/personal-site' }}/"
+
+      - name: 重启 Node 出口（可选）
+        run: |
+          ssh -p "${{ vars.DEPLOY_PORT || 22 }}" -i ~/.ssh/id_ed25519 \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "sudo systemctl restart personal-site || true"
