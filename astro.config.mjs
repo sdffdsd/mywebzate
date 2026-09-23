@@ -3,8 +3,8 @@ import { defineConfig } from 'astro/config';
 
 // https://astro.build/config
 export default defineConfig({
-  // 上线前改成你自己的域名（Cloudflare Pages 自定义域名 / 香港服务器域名）
-  site: 'https://example.com',
+  // 站点正式域名（影响 canonical / og:url / sitemap，换域名时记得同步改这里）
+  site: 'https://za4ever.com',
 
   // 纯静态输出：国内 CDN / 境外 CDN / 任意 Nginx 都能直接托管
   output: 'static',
