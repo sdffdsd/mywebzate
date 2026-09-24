@@ -23,6 +23,21 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : un
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
+    <script is:inline>
+      /*
+        前置入口门：只有「本次会话还没进过站」时才给 <html> 打标记。
+        必须放在 head 里同步执行，才能赶在首次绘制之前就位 ——
+        否则主站内容会先闪一帧，再被门盖住。
+        无 JS 时这段不会执行，门也不会出现，读者照常看得到完整内容。
+      */
+      try {
+        if (!sessionStorage.getItem('gate-passed')) {
+          document.documentElement.classList.add('is-gated');
+        }
+      } catch {
+        document.documentElement.classList.add('is-gated');
+      }
+    </script>
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="color-scheme" content="dark" />

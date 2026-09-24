@@ -25,3 +25,10 @@
 
 /
   Cache-Control: public, max-age=0, must-revalidate
+
+# 手工分站：样式内联在 HTML 里，页面必须即时更新（和首页同理）
+/wired
+  Cache-Control: public, max-age=0, must-revalidate
+
+/wired/
+  Cache-Control: public, max-age=0, must-revalidate

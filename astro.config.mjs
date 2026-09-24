@@ -24,8 +24,16 @@ export default defineConfig({
 
   vite: {
     build: {
-      // 动效库（three / gsap）都是动态 import，这里避免被合并进首屏包
-      cssCodeSplit: false,
+      // 按页面拆分 CSS（默认行为）。
+      //
+      // 曾经设成 false，实测后果是：Vite 把所有 CSS 合并成唯一一份 style.css，
+      // Astro 会把这份文件注入「每一个页面」——包括一个样式都不 import 的 /wired/。
+      // 而它的 <link> 位置在各页 <style> 之后，于是主站的 body/配色/字体
+      // 会反过来覆盖分站自己写的样式（同级选择器后者胜）。
+      //
+      // 拆开之后：主站各页只加载自己用到的 CSS，/wired/ 完全不加载主站样式。
+      // 资源仍然落在 /_astro/* 下（带 hash），public/_headers 的 immutable 规则照常生效。
+      cssCodeSplit: true,
     },
   },
 });

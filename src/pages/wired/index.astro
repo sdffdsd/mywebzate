@@ -1,0 +1,939 @@
+---
+/**
+ * /wired/ —— 手工风格的入口页（Webcore / Neocities 审美）
+ *
+ * 设计约束（刻意和主站相反，但遵循同一套工程底线）：
+ *   1. 不引任何外部字体、第三方脚本、图片、音频文件 —— 纹理由 CSS 生成，音效由 Web Audio 合成。
+ *   2. 样式用 <style is:inline> 内联：因为 astro.config.mjs 设了 vite.build.cssCodeSplit = false，
+ *      走正常 <style> 会被打进全站那份 style.css，主站也得跟着下载这一页的样式。
+ *   3. 不用 BaseLayout：这一页不该带主站的导航 / 页脚 / 滚动进度条。
+ *   4. 无 JS 时不能锁死内容 —— 入场门只在检测到 JS 后才显示。
+ */
+const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : undefined;
+const title = 'WIRED NODE · ZAKURA';
+const description = 'za4ever.com 的手工分站：CRT 叠层、终端回显、Web Audio 合成音效，零外部素材。';
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0b0b10" />
+    {canonical && <link rel="canonical" href={canonical} />}
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    {canonical && <meta property="og:url" content={canonical} />}
+    <script is:inline>
+      // 让入场门只在 JS 可用时出现：禁用 JS 的读者不该被挡在门外。
+      document.documentElement.dataset.js = 'on';
+    </script>
+
+    <style is:inline>
+      /* ============================================================
+         WIRED NODE —— 一套独立的设计令牌
+         主站是「顺滑、克制、系统字体」；这里是「跳变、硬边框、等宽」。
+         ============================================================ */
+      :root {
+        --w-bg: #0b0b10;
+        --w-panel: #12121a;
+        --w-line: #2a2a38;
+        --w-pink: #d2738a;
+        --w-sand: #c1b492;
+        --w-cyan: #59cfff;
+        --w-glow: rgba(89, 207, 255, 0.65);
+        /* 不加载外部像素字体（国内访问 Google Fonts 太慢）：用系统等宽 + 字距做出点阵感。
+           想上真点阵字体，把子集化后的 woff2 放进 public/fonts/ 再 @font-face 即可。 */
+        --w-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+          "PingFang SC", "Microsoft YaHei", monospace;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100svh;
+        color: var(--w-sand);
+        background-color: var(--w-bg);
+        /* 假平铺纹理：两层 repeating-gradient 模拟 4×4 像素贴图，零图片请求。
+           想换成真 GIF，注释下面两行，改成：
+             background-image: url('/wired/bg-tile.gif');
+             background-repeat: repeat;                                        */
+        background-image:
+          repeating-linear-gradient(0deg, rgba(210, 115, 138, 0.055) 0 2px, transparent 2px 4px),
+          repeating-linear-gradient(90deg, rgba(89, 207, 255, 0.035) 0 2px, transparent 2px 4px);
+        font-family: var(--w-mono);
+        font-size: 17px;
+        line-height: 1.6;
+        letter-spacing: 0.04em;
+        image-rendering: pixelated;
+        overflow-x: hidden;
+      }
+
+      a {
+        color: var(--w-pink);
+        text-decoration: none;
+      }
+
+      a:hover {
+        color: var(--w-cyan);
+        text-shadow: 0 0 8px var(--w-glow);
+      }
+
+      a:focus-visible,
+      button:focus-visible {
+        outline: 2px solid var(--w-cyan);
+        outline-offset: 2px;
+      }
+
+      .wrap {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 2.5rem 1.25rem 4rem;
+      }
+
+      .skip-link {
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        z-index: 200;
+        padding: 0.6rem 1rem;
+        background: var(--w-cyan);
+        color: #06121a;
+      }
+
+      .skip-link:focus {
+        left: 0.5rem;
+        top: 0.5rem;
+      }
+
+      /* ============================================================
+         1) CRT 叠层：扫描线 + 暗角 + 偶发闪烁
+         全部 pointer-events: none，绝不拦截点击。
+         ============================================================ */
+      .crt {
+        position: fixed;
+        inset: 0;
+        z-index: 90;
+        pointer-events: none;
+      }
+
+      .crt__lines {
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(
+          to bottom,
+          rgba(255, 255, 255, 0.045) 0 1px,
+          transparent 1px 3px
+        );
+        mix-blend-mode: overlay;
+      }
+
+      .crt__vignette {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(ellipse at center, transparent 52%, rgba(0, 0, 0, 0.88) 100%);
+      }
+
+      .crt__flicker {
+        position: absolute;
+        inset: 0;
+        background: rgba(210, 115, 138, 0.04);
+        animation: w-flicker 4.2s steps(2) infinite;
+      }
+
+      @keyframes w-flicker {
+        0%, 97%, 100% { opacity: 0; }
+        98% { opacity: 1; }
+      }
+
+      /* ============================================================
+         2) 入场门：同时是「音频解锁」的合规入口
+         浏览器禁止无用户手势出声，所以先让读者点一下。
+         ============================================================ */
+      .gate {
+        display: none;
+      }
+
+      html[data-js='on'] .gate {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: grid;
+        place-content: center;
+        gap: 1.4rem;
+        padding: 1.5rem;
+        text-align: center;
+        background: rgba(6, 6, 10, 0.96);
+        transition: opacity 0.5s ease, visibility 0.5s;
+      }
+
+      .gate.is-gone {
+        opacity: 0;
+        visibility: hidden;
+      }
+
+      .gate__btn {
+        font: inherit;
+        font-size: 0.95rem;
+        letter-spacing: 0.2em;
+        padding: 1rem 1.5rem;
+        color: var(--w-cyan);
+        background: transparent;
+        border: 2px solid var(--w-cyan);
+        cursor: pointer;
+        text-shadow: 0 0 10px var(--w-glow);
+        box-shadow: 0 0 0 1px #000, 4px 4px 0 rgba(0, 0, 0, 0.6);
+      }
+
+      .gate__btn:hover {
+        background: rgba(89, 207, 255, 0.12);
+      }
+
+      .gate p {
+        margin: 0;
+        font-size: 0.82rem;
+        opacity: 0.72;
+      }
+
+      .gate .hint {
+        opacity: 0.5;
+      }
+
+      /* ============================================================
+         3) 标题：glitch 靠 ::before/::after 错位 + clip-path 切片
+         steps() 让抖动是「跳变」而非平滑 —— 味道的来源。
+         ============================================================ */
+      .glitch {
+        position: relative;
+        display: inline-block;
+        margin: 0;
+        font-size: clamp(1.4rem, 5.5vw, 2.4rem);
+        font-weight: 700;
+        line-height: 1.35;
+        letter-spacing: 0.08em;
+        color: var(--w-cyan);
+        text-shadow: 0 0 12px var(--w-glow);
+      }
+
+      .glitch::before,
+      .glitch::after {
+        content: attr(data-text);
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+      }
+
+      .glitch::before {
+        color: #00ffff;
+        animation: w-glitch 2.4s steps(2) infinite;
+      }
+
+      .glitch::after {
+        color: #ff3b6b;
+        animation: w-glitch 1.7s steps(2) infinite reverse;
+      }
+
+      @keyframes w-glitch {
+        0%, 91%, 100% { transform: translate(0, 0); clip-path: inset(0 0 0 0); }
+        93% { transform: translate(-3px, 1px); clip-path: inset(14% 0 58% 0); }
+        96% { transform: translate(3px, -2px); clip-path: inset(52% 0 22% 0); }
+      }
+
+      .sub {
+        margin: 0.7rem 0 0;
+        font-size: 0.84rem;
+        opacity: 0.8;
+      }
+
+      /* ============================================================
+         4) 跑马灯
+         ============================================================ */
+      .ticker {
+        overflow: hidden;
+        margin: 1.6rem 0;
+        white-space: nowrap;
+        border-top: 1px solid var(--w-line);
+        border-bottom: 1px solid var(--w-line);
+        background: rgba(210, 115, 138, 0.06);
+      }
+
+      .ticker span {
+        display: inline-block;
+        padding-left: 100%;
+        color: var(--w-pink);
+        font-size: 0.82rem;
+        animation: w-slide 26s linear infinite;
+      }
+
+      @keyframes w-slide {
+        to { transform: translateX(-100%); }
+      }
+
+      /* ============================================================
+         5) 面板：硬边框 + 硬阴影，拒绝圆角
+         ============================================================ */
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(258px, 1fr));
+        gap: 0.9rem;
+      }
+
+      .panel {
+        padding: 0.95rem 1.05rem;
+        background: var(--w-panel);
+        border: 1px solid var(--w-line);
+        box-shadow: 0 0 0 1px #000, 6px 6px 0 rgba(0, 0, 0, 0.6);
+      }
+
+      .panel--wide {
+        grid-column: 1 / -1;
+      }
+
+      .panel h2 {
+        margin: 0 0 0.7rem;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--w-cyan);
+      }
+
+      .panel h2::before {
+        content: '▚ ';
+        color: var(--w-pink);
+      }
+
+      /* 终端回显 */
+      .term {
+        margin: 0;
+        min-height: 7.2em;
+        font-size: 0.86rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .caret {
+        display: inline-block;
+        width: 8px;
+        height: 15px;
+        margin-left: 1px;
+        vertical-align: -2px;
+        background: var(--w-cyan);
+        animation: w-blink 1s steps(2) infinite;
+      }
+
+      @keyframes w-blink {
+        50% { opacity: 0; }
+      }
+
+      /* 键值表 */
+      dl {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.25rem 0.9rem;
+        margin: 0;
+        font-size: 0.86rem;
+      }
+
+      dt { color: var(--w-pink); }
+      dd { margin: 0; text-align: right; }
+
+      /* LCD 计数 */
+      .digits {
+        display: flex;
+        gap: 3px;
+        margin: 0.45rem 0 0.6rem;
+      }
+
+      .digits i {
+        padding: 0.3rem 0.42rem;
+        font-style: normal;
+        font-size: 0.82rem;
+        color: #ff8ea8;
+        background: #1a0b12;
+        border: 1px solid #40202c;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .digits[data-state='error'] i {
+        color: var(--w-sand);
+        background: #14141a;
+        border-color: var(--w-line);
+      }
+
+      /* 链接表 */
+      .links {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        font-size: 0.86rem;
+      }
+
+      .links li {
+        border-bottom: 1px dashed var(--w-line);
+      }
+
+      .links li:last-child {
+        border-bottom: 0;
+      }
+
+      .links a {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.42rem 0;
+      }
+
+      .links small {
+        opacity: 0.5;
+      }
+
+      /* 88×31 站徽：Webcore 的经典尺寸，纯 CSS 画 */
+      .badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .badge {
+        display: grid;
+        place-content: center;
+        width: 88px;
+        height: 31px;
+        font-size: 0.52rem;
+        line-height: 1.5;
+        letter-spacing: 0.06em;
+        text-align: center;
+        color: #0b0b10;
+        background: linear-gradient(160deg, var(--w-cyan), var(--w-pink));
+        border: 1px solid #000;
+      }
+
+      .badge:hover {
+        color: #0b0b10;
+        text-shadow: none;
+        filter: invert(1);
+      }
+
+      /* ============================================================
+         6) 可拖动的小窗口（OS 隐喻的最小实现）
+         手机上直接隐藏：拖拽在触屏上没有意义，只会挡内容。
+         ============================================================ */
+      .window {
+        position: fixed;
+        right: 20px;
+        bottom: 20px;
+        z-index: 80;
+        width: 292px;
+        background: var(--w-panel);
+        border: 2px solid var(--w-cyan);
+        box-shadow: 8px 8px 0 rgba(0, 0, 0, 0.65);
+        font-size: 0.84rem;
+      }
+
+      .window[hidden] {
+        display: none;
+      }
+
+      .window__bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 3px 5px;
+        background: var(--w-cyan);
+        color: #06121a;
+        font-size: 0.7rem;
+        letter-spacing: 0.12em;
+        cursor: move;
+        user-select: none;
+        touch-action: none;
+      }
+
+      .window__bar button {
+        width: 17px;
+        height: 17px;
+        padding: 0;
+        font: inherit;
+        font-size: 0.66rem;
+        line-height: 1;
+        color: #06121a;
+        background: var(--w-pink);
+        border: 1px solid #06121a;
+        cursor: pointer;
+      }
+
+      .window__body {
+        padding: 0.7rem;
+      }
+
+      .window__body p {
+        margin: 0 0 0.5rem;
+      }
+
+      .window__body p:last-child {
+        margin-bottom: 0;
+      }
+
+      @media (max-width: 720px) {
+        .window {
+          display: none;
+        }
+      }
+
+      /* ============================================================
+         7) 页脚控件
+         ============================================================ */
+      .foot {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 1rem;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 2.25rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--w-line);
+        font-size: 0.8rem;
+        opacity: 0.85;
+      }
+
+      .foot button {
+        font: inherit;
+        font-size: 0.78rem;
+        color: var(--w-sand);
+        background: transparent;
+        border: 1px solid var(--w-line);
+        padding: 0.25rem 0.7rem;
+        cursor: pointer;
+      }
+
+      .foot button:hover {
+        color: var(--w-cyan);
+        border-color: var(--w-cyan);
+      }
+
+      .foot__group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
+      /* ============================================================
+         8) 无障碍：系统开启「减少动态效果」后，一切跳变与循环全部停下。
+         注意：闪烁频率也必须踩在 3 Hz 以下（WCAG 2.3.1 光敏性癫痫红线）。
+         ============================================================ */
+      @media (prefers-reduced-motion: reduce) {
+        .glitch::before,
+        .glitch::after,
+        .caret,
+        .crt__flicker,
+        .ticker span {
+          animation: none;
+        }
+
+        .ticker {
+          white-space: normal;
+        }
+
+        .ticker span {
+          display: block;
+          padding-left: 0;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+
+    <!-- 入场门：只在 JS 可用时显示（见 head 里的 data-js 标记） -->
+    <div class="gate" id="gate">
+      <button class="gate__btn" id="gate-enter" type="button">▶ ENTER</button>
+      <p>点击进入会开启界面音效（可随时在页脚关闭）</p>
+      <p class="hint">本页不含任何图片与音频文件 · 纹理与音效均为实时生成</p>
+    </div>
+
+    <div class="crt" aria-hidden="true">
+      <div class="crt__lines"></div>
+      <div class="crt__vignette"></div>
+      <div class="crt__flicker"></div>
+    </div>
+
+    <div class="wrap">
+      <header>
+        <h1 class="glitch" data-text="WIRED NODE">WIRED NODE</h1>
+        <p class="sub">za4ever.com 的手工分站 · 无框架 · 无追踪 · 永久施工中</p>
+      </header>
+
+      <div class="ticker" aria-hidden="true">
+        <span>
+          ✦ 这里是 WIRED NODE ✦ 样式手搓 ✦ 纹理与音效实时生成 ✦ 不加载外部字体 ✦ 不装任何统计脚本 ✦
+          建议把音量调小一点 ✦ 主站更正经，向右转 → za4ever.com ✦
+        </span>
+      </div>
+
+      <main id="main">
+        <div class="grid">
+          <section class="panel">
+            <h2>System.Log</h2>
+            <p class="term" id="term"></p>
+          </section>
+
+          <section class="panel">
+            <h2>Status</h2>
+            <dl>
+              <dt>节点</dt><dd>CF-EDGE</dd>
+              <dt>信号</dt><dd id="signal">▮▮▮▯▯</dd>
+              <dt>心情</dt><dd>信号不良</dd>
+              <dt>本地时间</dt><dd id="clock">--:--:--</dd>
+            </dl>
+          </section>
+
+          <section class="panel">
+            <h2>Counter</h2>
+            <p style="margin: 0; font-size: 0.86rem;">你是第</p>
+            <div class="digits" id="visit-digits" data-state="loading">
+              <i>—</i><i>—</i><i>—</i><i>—</i><i>—</i><i>—</i><i>—</i><i>—</i>
+            </div>
+            <p style="margin: 0; font-size: 0.78rem; opacity: 0.7;">
+              位访客 · 由 Pages Function + KV 实时统计<br />
+              <small>和主站页脚同源，同一个会话只计一次</small>
+            </p>
+          </section>
+
+          <section class="panel">
+            <h2>Links</h2>
+            <ul class="links">
+              <li><a href="/"><span>→ 回到主站</span><small>za4ever.com</small></a></li>
+              <li><a href="/notes/"><span>→ 笔记</span><small>/notes/</small></a></li>
+              <li><a href="/#sound"><span>→ 声音</span><small>/#sound</small></a></li>
+              <li>
+                <a href="https://github.com/sdffdsd/mywebzate" rel="noopener">
+                  <span>→ 源码仓库</span><small>github</small>
+                </a>
+              </li>
+            </ul>
+          </section>
+
+          <section class="panel panel--wide">
+            <h2>Webring</h2>
+            <div class="badges">
+              <span class="badge">ZAKURA<br />NODE</span>
+              <span class="badge">NO<br />TRACKERS</span>
+              <span class="badge">MADE BY<br />HAND</span>
+              <span class="badge">最好用<br />电脑看</span>
+              <span class="badge">88×31<br />CLASSIC</span>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <footer class="foot">
+        <span>© {new Date().getFullYear()} ZAKURA · 内容手写，样式手搓</span>
+        <span class="foot__group">
+          <button id="toggle-sound" type="button" aria-pressed="false">音效：关</button>
+          <button id="toggle-hum" type="button" aria-pressed="false">底噪：关</button>
+          <a href="/">← 回主站</a>
+        </span>
+      </footer>
+    </div>
+
+    <div class="window" id="window" hidden>
+      <div class="window__bar" id="window-bar">
+        <span>readme.txt</span>
+        <button id="window-close" type="button" aria-label="关闭窗口">X</button>
+      </div>
+      <div class="window__body">
+        <p>这个窗口可以拖。</p>
+        <p>真实的 Webcore 站里，整个首页就是这样一个桌面 —— 这里是它的最小实现。</p>
+      </div>
+    </div>
+
+    <script>
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      /* ---------- 音效：全部由 Web Audio 实时合成，不需要任何音频文件 ---------- */
+      let audioCtx: AudioContext | undefined;
+      let soundOn = false;
+      let humNodes: { osc: OscillatorNode; gain: GainNode }[] = [];
+
+      const ensureCtx = (): AudioContext | undefined => {
+        const Ctor =
+          window.AudioContext ??
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!Ctor) return undefined;
+        audioCtx ??= new Ctor();
+        return audioCtx;
+      };
+
+      const beep = (freq = 880, dur = 0.05, vol = 0.035) => {
+        if (!soundOn) return;
+        const ctx = ensureCtx();
+        if (!ctx) return;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.value = freq;
+        gain.gain.value = vol;
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + dur);
+      };
+
+      /* 底噪：两个略微失谐的振荡器，模仿老显示器的嗡嗡声 */
+      const setHum = (on: boolean) => {
+        if (on) {
+          if (humNodes.length > 0) return;
+          const ctx = ensureCtx();
+          if (!ctx) return;
+          for (const freq of [60, 60.7]) {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = freq === 60 ? 'sawtooth' : 'sine';
+            osc.frequency.value = freq;
+            gain.gain.value = 0.018;
+            osc.connect(gain).connect(ctx.destination);
+            osc.start();
+            humNodes.push({ osc, gain });
+          }
+        } else {
+          for (const { osc, gain } of humNodes) {
+            try {
+              osc.stop();
+            } catch {
+              /* 已经停了，忽略 */
+            }
+            gain.disconnect();
+          }
+          humNodes = [];
+        }
+      };
+
+      /* ---------- 页脚开关（先声明，入场门里会用到） ---------- */
+      const soundBtn = document.getElementById('toggle-sound');
+      const humBtn = document.getElementById('toggle-hum');
+
+      const syncSoundButton = () => {
+        if (!soundBtn) return;
+        soundBtn.textContent = `音效：${soundOn ? '开' : '关'}`;
+        soundBtn.setAttribute('aria-pressed', String(soundOn));
+      };
+
+      /* ---------- 入场门 ---------- */
+      const gate = document.getElementById('gate');
+      const enterBtn = document.getElementById('gate-enter');
+
+      enterBtn?.addEventListener('click', () => {
+        // 必须在这个点击回调里创建 / 恢复 AudioContext，才不会被浏览器拦下
+        soundOn = true;
+        void ensureCtx()?.resume();
+        beep(1180, 0.08);
+        gate?.classList.add('is-gone');
+        gate?.setAttribute('aria-hidden', 'true');
+        if (enterBtn instanceof HTMLElement) enterBtn.tabIndex = -1;
+        syncSoundButton();
+      });
+
+      /* ---------- 悬停 / 点击音效（只在音效开启后生效） ---------- */
+      document.addEventListener(
+        'pointerover',
+        (event) => {
+          const target = event.target as Element | null;
+          if (target?.closest('a, button')) beep(1220, 0.035, 0.025);
+        },
+        { passive: true },
+      );
+
+      document.addEventListener('click', (event) => {
+        const target = event.target as Element | null;
+        if (target?.closest('a, button')) beep(300, 0.06);
+      });
+
+      /* ---------- 终端回显（打字机） ---------- */
+      const lines = [
+        '> 正在建立连接 . . . 完成',
+        '> 外部字体：0 个（改用系统等宽）',
+        '> 图片素材：0 个（纹理由 CSS 生成）',
+        '> 音频素材：0 个（Web Audio 实时合成）',
+        '> 欢迎回来，旅行者。',
+        '',
+      ];
+      const term = document.getElementById('term');
+      const caret = document.createElement('span');
+      caret.className = 'caret';
+
+      if (term) {
+        if (reduced) {
+          term.textContent = lines.join('\n');
+          term.append(caret);
+        } else {
+          term.append(caret);
+          let lineIndex = 0;
+          let charIndex = 0;
+
+          const type = () => {
+            if (lineIndex >= lines.length) {
+              // 播完停一会儿再从头开始，避免持续不断的高频变化
+              setTimeout(() => {
+                term.textContent = '';
+                term.append(caret);
+                lineIndex = 0;
+                charIndex = 0;
+                type();
+              }, 6000);
+              return;
+            }
+
+            const line = lines[lineIndex] ?? '';
+            const done = lines.slice(0, lineIndex).join('\n');
+            caret.remove();
+            term.textContent = `${lineIndex > 0 ? `${done}\n` : ''}${line.slice(0, charIndex)}`;
+            term.append(caret);
+
+            if (charIndex < line.length) {
+              charIndex += 1;
+              setTimeout(type, 24);
+            } else {
+              lineIndex += 1;
+              charIndex = 0;
+              setTimeout(type, 420);
+            }
+          };
+
+          type();
+        }
+      }
+
+      /* ---------- 时钟与信号灯 ---------- */
+      const clock = document.getElementById('clock');
+      const signal = document.getElementById('signal');
+
+      const tickClock = () => {
+        if (clock) clock.textContent = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      };
+      tickClock();
+      setInterval(tickClock, 1000);
+
+      const drawSignal = () => {
+        if (!signal) return;
+        const bars = 1 + Math.floor(Math.random() * 4);
+        signal.textContent = '▮'.repeat(bars) + '▯'.repeat(5 - bars);
+      };
+      drawSignal();
+      setInterval(drawSignal, 3200);
+
+      /* ---------- 访客计数：复用主站同一个接口与同一个会话标记 ---------- */
+      const digits = document.getElementById('visit-digits');
+      if (digits) {
+        const key = 'visit-counted';
+        const shouldCount = !sessionStorage.getItem(key);
+
+        fetch(shouldCount ? '/api/visit?inc=1' : '/api/visit', {
+          headers: { accept: 'application/json' },
+        })
+          .then((response) =>
+            response.ok ? response.json() : Promise.reject(new Error(String(response.status))),
+          )
+          .then((data: { count?: number }) => {
+            if (typeof data.count !== 'number') return;
+            sessionStorage.setItem(key, '1');
+            const text = String(data.count).padStart(8, '0').slice(-8);
+            digits.textContent = '';
+            digits.dataset.state = 'ok';
+            for (const digit of text) {
+              const cell = document.createElement('i');
+              cell.textContent = digit;
+              digits.append(cell);
+            }
+          })
+          .catch(() => {
+            // 本地静态预览（没起 Functions）时静默降级，不打扰读者
+            digits.dataset.state = 'error';
+          });
+      }
+
+      /* ---------- 可拖动的小窗口 ---------- */
+      const win = document.getElementById('window');
+      const bar = document.getElementById('window-bar');
+      const closeBtn = document.getElementById('window-close');
+
+      if (win && bar) {
+        // 进入本页 2.4 秒后弹出，先给主内容留出被看到的机会
+        setTimeout(() => {
+          win.hidden = false;
+        }, 2400);
+
+        let drag: { dx: number; dy: number } | null = null;
+
+        bar.addEventListener('pointerdown', (event) => {
+          const rect = win.getBoundingClientRect();
+          drag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+          win.style.right = 'auto';
+          win.style.bottom = 'auto';
+          win.style.left = `${rect.left}px`;
+          win.style.top = `${rect.top}px`;
+          bar.setPointerCapture(event.pointerId);
+        });
+
+        bar.addEventListener('pointermove', (event) => {
+          if (!drag) return;
+          win.style.left = `${event.clientX - drag.dx}px`;
+          win.style.top = `${event.clientY - drag.dy}px`;
+        });
+
+        const endDrag = () => {
+          drag = null;
+        };
+        bar.addEventListener('pointerup', endDrag);
+        bar.addEventListener('pointercancel', endDrag);
+      }
+
+      closeBtn?.addEventListener('click', () => {
+        if (win) win.hidden = true;
+      });
+
+      /* ---------- 音效开关 ---------- */
+      syncSoundButton();
+
+      soundBtn?.addEventListener('click', () => {
+        soundOn = !soundOn;
+        if (soundOn) void ensureCtx()?.resume();
+        else setHum(false);
+        syncSoundButton();
+        if (humBtn && !soundOn) {
+          humBtn.textContent = '底噪：关';
+          humBtn.setAttribute('aria-pressed', 'false');
+        }
+        beep(900, 0.06);
+      });
+
+      humBtn?.addEventListener('click', () => {
+        const next = humBtn.getAttribute('aria-pressed') !== 'true';
+        if (next && !soundOn) {
+          soundOn = true;
+          void ensureCtx()?.resume();
+          syncSoundButton();
+        }
+        setHum(next);
+        humBtn.textContent = `底噪：${next ? '开' : '关'}`;
+        humBtn.setAttribute('aria-pressed', String(next));
+      });
+    </script>
+  </body>
+</html>

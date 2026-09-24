@@ -1,0 +1,321 @@
+---
+/**
+ * EntryGate —— 站点前置入口门（覆盖层）
+ *
+ * 为什么是覆盖层而不是把首页搬到 /home/：
+ *   1. 网址不变：za4ever.com 还是首页本身，canonical / 站内链接 / 外部反链全都不受影响。
+ *   2. SEO 不变：正文照旧在 HTML 里，爬虫不执行 JS 就直接看到完整内容。
+ *   3. 可随时撤回：删掉 <EntryGate /> 这一行即可，其它文件不用动。
+ *   4. 首屏更顺：主站资源在门后面照常并行加载，点 ENTER 时是瞬间展开，不是重新加载。
+ *
+ * 三条工程底线继续遵守：
+ *   - 零外部字体 / 图片 / 音频 / 第三方脚本（音效由 Web Audio 合成）。
+ *   - 无 JS 时不显示门，读者不会被锁在门外（见 BaseLayout 里的 is-gated 标记）。
+ *   - prefers-reduced-motion 下不做 glitch 抖动。
+ */
+---
+
+<div class="entry-gate" id="entry-gate" role="dialog" aria-modal="true" aria-label="站点入口">
+  <div class="entry-gate__scan" aria-hidden="true"></div>
+  <div class="entry-gate__vignette" aria-hidden="true"></div>
+
+  <div class="entry-gate__inner">
+    <p class="entry-gate__label">ZA4EVER.COM</p>
+    <h1 class="entry-gate__title" data-text="WIRED NODE">WIRED NODE</h1>
+    <p class="entry-gate__sub">这是一个人的站点 · 无框架 · 无追踪 · 永久施工中</p>
+
+    <button class="entry-gate__btn" id="entry-gate-enter" type="button">▶ ENTER</button>
+
+    <p class="entry-gate__note">点击进入会开启界面音效</p>
+    <p class="entry-gate__hint">
+      <button class="entry-gate__skip" id="entry-gate-skip" type="button">静音进入 →</button>
+      <span aria-hidden="true">·</span>
+      <a href="/wired/">手工分站 →</a>
+    </p>
+  </div>
+</div>
+
+<style is:inline>
+  /* 默认不显示：只有 BaseLayout 在 head 里判断「本次会话还没进过站」时才加 .is-gated。
+     无 JS 时不会加，门自然不存在。 */
+  .entry-gate {
+    display: none;
+  }
+
+  html.is-gated {
+    overflow: hidden;
+  }
+
+  html.is-gated .entry-gate {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: grid;
+    place-content: center;
+    /* 不透明底色：避免主站内容在门出现之前闪一帧 */
+    background-color: #06060a;
+    background-image:
+      repeating-linear-gradient(0deg, rgba(210, 115, 138, 0.055) 0 2px, transparent 2px 4px),
+      repeating-linear-gradient(90deg, rgba(89, 207, 255, 0.035) 0 2px, transparent 2px 4px);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "PingFang SC",
+      "Microsoft YaHei", monospace;
+    color: #c1b492;
+    text-align: center;
+    padding: 1.5rem;
+    opacity: 1;
+    transition: opacity 0.45s ease;
+  }
+
+  html.is-gated .entry-gate.is-gone {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .entry-gate__scan,
+  .entry-gate__vignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .entry-gate__scan {
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.045) 0 1px,
+      transparent 1px 3px
+    );
+    mix-blend-mode: overlay;
+  }
+
+  .entry-gate__vignette {
+    background: radial-gradient(ellipse at center, transparent 48%, rgba(0, 0, 0, 0.9) 100%);
+  }
+
+  .entry-gate__inner {
+    position: relative;
+    display: grid;
+    gap: 0.9rem;
+    justify-items: center;
+  }
+
+  .entry-gate__label {
+    margin: 0;
+    font-size: 0.72rem;
+    letter-spacing: 0.32em;
+    opacity: 0.6;
+  }
+
+  .entry-gate__title {
+    position: relative;
+    margin: 0;
+    font-size: clamp(1.6rem, 7vw, 2.9rem);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: #59cfff;
+    text-shadow: 0 0 14px rgba(89, 207, 255, 0.65);
+  }
+
+  .entry-gate__title::before,
+  .entry-gate__title::after {
+    content: attr(data-text);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  .entry-gate__title::before {
+    color: #00ffff;
+    animation: gate-glitch 2.4s steps(2) infinite;
+  }
+
+  .entry-gate__title::after {
+    color: #ff3b6b;
+    animation: gate-glitch 1.7s steps(2) infinite reverse;
+  }
+
+  @keyframes gate-glitch {
+    0%, 91%, 100% { transform: translate(0, 0); clip-path: inset(0 0 0 0); }
+    93% { transform: translate(-3px, 1px); clip-path: inset(14% 0 58% 0); }
+    96% { transform: translate(3px, -2px); clip-path: inset(52% 0 22% 0); }
+  }
+
+  .entry-gate__sub {
+    margin: 0;
+    font-size: 0.84rem;
+    opacity: 0.78;
+  }
+
+  .entry-gate__btn {
+    margin-top: 0.8rem;
+    padding: 0.95rem 2.2rem;
+    font: inherit;
+    font-size: 0.95rem;
+    letter-spacing: 0.24em;
+    color: #59cfff;
+    background: transparent;
+    border: 2px solid #59cfff;
+    cursor: pointer;
+    text-shadow: 0 0 10px rgba(89, 207, 255, 0.65);
+    box-shadow: 0 0 0 1px #000, 5px 5px 0 rgba(0, 0, 0, 0.65);
+  }
+
+  .entry-gate__btn:hover,
+  .entry-gate__btn:focus-visible {
+    background: rgba(89, 207, 255, 0.14);
+  }
+
+  .entry-gate__note,
+  .entry-gate__hint {
+    margin: 0;
+    font-size: 0.76rem;
+    opacity: 0.62;
+  }
+
+  .entry-gate__hint {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .entry-gate a {
+    color: #d2738a;
+  }
+
+  .entry-gate a:hover {
+    color: #59cfff;
+  }
+
+  .entry-gate__skip {
+    padding: 0;
+    font: inherit;
+    font-size: 0.76rem;
+    color: inherit;
+    background: none;
+    border: 0;
+    border-bottom: 1px dashed currentColor;
+    cursor: pointer;
+  }
+
+  .entry-gate :focus-visible {
+    outline: 2px solid #59cfff;
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .entry-gate__title::before,
+    .entry-gate__title::after {
+      animation: none;
+    }
+  }
+</style>
+
+<script>
+  const gate = document.getElementById('entry-gate');
+  const enterBtn = document.getElementById('entry-gate-enter');
+  const skipBtn = document.getElementById('entry-gate-skip');
+  const main = document.getElementById('main');
+
+  /** 进入音：三声上行方波，全部由 Web Audio 合成，不需要音频文件 */
+  const playEnter = () => {
+    const Ctor =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return;
+
+    const ctx = new Ctor();
+    const now = ctx.currentTime;
+
+    [523.25, 659.25, 987.77].forEach((freq, index) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const start = now + index * 0.07;
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.05, start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.22);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.25);
+    });
+  };
+
+  /** 悬停音：单独一个极短的方波，用完就关掉上下文 */
+  const playHover = () => {
+    const Ctor =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return;
+
+    const ctx = new Ctor();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 1300;
+    gain.gain.value = 0.025;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.03);
+    setTimeout(() => void ctx.close(), 300);
+  };
+
+  /** 门后面的内容在 gated 期间对键盘与读屏都不可达 */
+  const setBackgroundInert = (inert: boolean) => {
+    for (const el of document.querySelectorAll<HTMLElement>('.site-header, main, .site-footer')) {
+      el.inert = inert;
+    }
+  };
+
+  const closeGate = (sound: boolean) => {
+    if (!gate || gate.classList.contains('is-gone')) return;
+
+    try {
+      sessionStorage.setItem('gate-passed', '1');
+    } catch {
+      /* 隐私模式下写不进去也无所谓，最多下次再拦一次 */
+    }
+
+    if (sound) playEnter();
+
+    gate.classList.add('is-gone');
+    gate.setAttribute('aria-hidden', 'true');
+    document.documentElement.classList.remove('is-gated');
+    setBackgroundInert(false);
+
+    // 淡出结束后彻底移除，别留下一个盖住整屏的图层
+    setTimeout(() => gate.remove(), 500);
+
+    // 焦点交给主内容，键盘用户下一步就能 Tab 进导航
+    if (main) {
+      main.tabIndex = -1;
+      main.focus({ preventScroll: true });
+    }
+  };
+
+  if (gate && document.documentElement.classList.contains('is-gated')) {
+    setBackgroundInert(true);
+
+    enterBtn?.addEventListener('click', () => closeGate(true));
+    skipBtn?.addEventListener('click', () => closeGate(false));
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeGate(false);
+      else if (event.key === 'Enter') closeGate(true);
+    });
+
+    // 门可见时才注册悬停音，进站之后不再有任何全局监听
+    document.addEventListener(
+      'pointerover',
+      (event) => {
+        const target = event.target as Element | null;
+        if (target?.closest('.entry-gate a, .entry-gate button')) playHover();
+      },
+      { passive: true },
+    );
+
+    enterBtn?.focus({ preventScroll: true });
+  }
+</script>

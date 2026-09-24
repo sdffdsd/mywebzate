@@ -4,6 +4,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import Hero from '../components/Hero.astro';
 import ScrollStory from '../components/ScrollStory.astro';
 import AudioPlayer from '../components/AudioPlayer.astro';
+import EntryGate from '../components/EntryGate.astro';
 
 const notes = (await getCollection('notes', ({ data }) => !data.draft))
   .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf())
@@ -40,6 +41,8 @@ const dateFmt = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' });
 ---
 
 <BaseLayout title="ZAKURA · 图片、文字、动效与声音" description="纯静态个人站点：WebGL 动效、AVIF 图片、Web Audio 频谱与边缘函数示例。">
+  <EntryGate />
+
   <Hero />
 
   <section class="section">
