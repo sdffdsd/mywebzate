@@ -2,15 +2,19 @@
 import '../styles/global.css';
 import SiteHeader from '../components/SiteHeader.astro';
 import SiteFooter from '../components/SiteFooter.astro';
+import EntryGate from '../components/EntryGate.astro';
 
 interface Props {
   title: string;
   description?: string;
+  /** 是否在页面最前面加一道入口门（只有首页需要） */
+  gate?: boolean;
 }
 
 const {
   title,
   description = '个人站点：图像、文字、动效与声音。',
+  gate = false,
 } = Astro.props;
 
 const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : undefined;
@@ -23,21 +27,25 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : un
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
-    <script is:inline>
-      /*
-        前置入口门：只有「本次会话还没进过站」时才给 <html> 打标记。
-        必须放在 head 里同步执行，才能赶在首次绘制之前就位 ——
-        否则主站内容会先闪一帧，再被门盖住。
-        无 JS 时这段不会执行，门也不会出现，读者照常看得到完整内容。
-      */
-      try {
-        if (!sessionStorage.getItem('gate-passed')) {
-          document.documentElement.classList.add('is-gated');
-        }
-      } catch {
-        document.documentElement.classList.add('is-gated');
-      }
-    </script>
+    {
+      gate && (
+        <script is:inline>
+          /*
+            前置入口门：只有「本次会话还没进过站」时才给 <html> 打标记。
+            必须放在 head 里同步执行，才能赶在首次绘制之前就位 ——
+            否则主站内容会先闪一帧，再被门盖住。
+            无 JS 时这段不会执行，门也不会出现，读者照常看得到完整内容。
+          */
+          try {
+            if (!sessionStorage.getItem('gate-passed')) {
+              document.documentElement.classList.add('is-gated');
+            }
+          } catch {
+            document.documentElement.classList.add('is-gated');
+          }
+        </script>
+      )
+    }
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="color-scheme" content="dark" />
@@ -55,6 +63,15 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : un
     <main id="main">
       <slot />
     </main>
+
+    {/*
+      门必须渲染在 <main> 之外。
+      门显示时会给 header / main / footer 加 inert 来屏蔽背后的内容，
+      如果门本身长在 main 里，它自己也会被 inert 掉 —— 按钮既不能点也不能聚焦。
+      （这个坑真踩过一次：线上表现为 ENTER 与「静音进入」全部点不动。）
+    */}
+    {gate && <EntryGate />}
+
     <SiteFooter />
 
     <script>

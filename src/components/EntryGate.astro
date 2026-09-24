@@ -5,8 +5,12 @@
  * 为什么是覆盖层而不是把首页搬到 /home/：
  *   1. 网址不变：za4ever.com 还是首页本身，canonical / 站内链接 / 外部反链全都不受影响。
  *   2. SEO 不变：正文照旧在 HTML 里，爬虫不执行 JS 就直接看到完整内容。
- *   3. 可随时撤回：删掉 <EntryGate /> 这一行即可，其它文件不用动。
+ *   3. 可随时撤回：去掉 BaseLayout 上的 gate 属性即可，其它文件不用动。
  *   4. 首屏更顺：主站资源在门后面照常并行加载，点 ENTER 时是瞬间展开，不是重新加载。
+ *
+ * ⚠️ 这个组件必须渲染在 <main> 之外（由 BaseLayout 负责摆放）。
+ *    门显示时会给 header / main / footer 加 inert 来屏蔽背后内容，
+ *    若门自己长在 main 里，它也会被 inert 掉 —— 按钮全部点不动。
  *
  * 三条工程底线继续遵守：
  *   - 零外部字体 / 图片 / 音频 / 第三方脚本（音效由 Web Audio 合成）。
@@ -265,6 +269,9 @@
   /** 门后面的内容在 gated 期间对键盘与读屏都不可达 */
   const setBackgroundInert = (inert: boolean) => {
     for (const el of document.querySelectorAll<HTMLElement>('.site-header, main, .site-footer')) {
+      // 兜底：万一门被放进了某个容器内部，绝不能把它的祖先设为 inert，
+      // 否则门自己也会一起失效（表现为按钮点不动、也无法聚焦）。
+      if (gate && el.contains(gate)) continue;
       el.inert = inert;
     }
   };
