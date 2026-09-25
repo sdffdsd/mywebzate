@@ -7,10 +7,15 @@
  *
  * 画法（全部在浏览器里现算，没有任何图片 / 字体 / 音频文件）：
  *   1. 把视口切成等宽字符网格（列宽 = 实测字宽，所以网格严格对齐）。
- *   2. 每帧给每个格子算一个「亮度 + 色相 + 饱和度」，分五层叠加：
- *        星云（缓慢漂移的噪声云） → 星星（三层视差 + 很慢的闪烁）
- *        → 月亮（唯一的高光） → 地平线光带 → 海面（透视压缩的浪 + 月光碎路）
- *   3. 亮度决定字形（ASCII 密度阶梯，或 0/1 的有序抖动）与颜色深浅。
+ *   2. 画面分三段：天空（星云 / 星 / 一轮月）→ 流星带 → 海面。
+ *      中间那段流星带就是天与海之间新长出来的过渡：一个个字符从带顶落向
+ *      地平线，进场时慢慢亮起来，中段最亮，再一路暗下去熄灭。
+ *   3. 整片天空连同星和月一起向左缓慢漂移，越「近」的天体走得越快，
+ *      月亮在水面上的那条光路跟着它一起挪。
+ *   4. 每帧给每个格子算一个「亮度 + 色相 + 饱和度」，分七层叠加：
+ *        星云 → 流星带的雾 → 流星 → 星 → 月 → 地平线光带
+ *        → 海面（透视压缩的浪 + 月光碎路）
+ *   5. 亮度决定字形（ASCII 密度阶梯，或 0/1 的有序抖动）与颜色深浅。
  *
  * 上一版这里的「噪音」全部删掉了：
  *   没有 glitch、没有扫描线、没有 CRT 闪烁、没有跑马灯、没有随机跳动的信号灯、
@@ -83,14 +88,15 @@ const description =
         background-image: linear-gradient(
           to bottom,
           #03050c 0%,
-          #070818 20%,
-          #120c26 36%,
-          #1e1138 47.5%,
-          rgba(110, 210, 240, 0.3) 49.6%,
-          rgba(110, 210, 240, 0.3) 50.4%,
-          #0a2036 51.5%,
-          #08192b 66%,
-          #050f1d 81%,
+          #070818 18%,
+          #120c26 32%,
+          #1e1138 45%,
+          rgba(122, 152, 214, 0.14) 57%,
+          rgba(110, 210, 240, 0.3) 62.4%,
+          rgba(110, 210, 240, 0.3) 63.6%,
+          #0a2036 64.8%,
+          #08192b 78%,
+          #050f1d 90%,
           #02050b 100%
         );
         background-attachment: fixed;
@@ -164,15 +170,18 @@ const description =
         gap: 1rem;
         justify-items: center;
         max-width: 46rem;
-        padding: 2.5rem 2rem;
+        padding: 3rem clamp(1.75rem, 6vw, 3.25rem);
         /* 一团柔和的暗色晕圈：压住背后的字符，保证文字始终读得清。
-           它不是边框也不是卡片，所以看起来仍然像「字浮在星海上」。 */
+           它不是边框也不是卡片，所以看起来仍然像「字浮在星海上」。
+           字符网格加密之后星星多了，所以这里把过渡拉得更长、更平 ——
+           否则在密星里会看出一个椭圆形的「洞」。 */
         background: radial-gradient(
           ellipse at center,
-          rgba(3, 6, 14, 0.9) 0%,
-          rgba(3, 6, 14, 0.68) 42%,
-          rgba(3, 6, 14, 0.24) 68%,
-          rgba(3, 6, 14, 0) 84%
+          rgba(3, 6, 14, 0.93) 0%,
+          rgba(3, 6, 14, 0.74) 34%,
+          rgba(3, 6, 14, 0.4) 58%,
+          rgba(3, 6, 14, 0.14) 78%,
+          rgba(3, 6, 14, 0) 100%
         );
       }
 
@@ -182,6 +191,8 @@ const description =
         letter-spacing: 0.36em;
         text-transform: uppercase;
         color: var(--faint);
+        /* 月亮会从这一行后面经过（窄屏上尤其近），给一层阴影免得被月盘吃掉 */
+        text-shadow: 0 1px 14px rgba(0, 0, 0, 0.95), 0 0 6px rgba(0, 0, 0, 0.8);
       }
 
       .hero__title {
@@ -462,7 +473,7 @@ const description =
             <button class="seg__btn" type="button" data-mode="binary" aria-pressed="false">01</button>
           </div>
 
-          <p class="hero__hint">星、月、潮都是现场算出来的 · 往下滚还有字 ↓</p>
+          <p class="hero__hint">星、月、流星、潮都是现场算出来的 · 往下滚还有字 ↓</p>
         </div>
       </header>
 
@@ -473,9 +484,14 @@ const description =
             上一版这里是台 CRT 终端：扫描线、闪烁、跑马灯、随机跳的信号灯。那些都是噪音，这次删干净了。
           </p>
           <p>
-            现在的背景是一张<strong>实时画出来的字符画</strong>：上半是宇宙（星云、星、一轮月），
-            下半是大海（浪，以及月光碎在水面上的那条路）。越靠近地平线越远、越淡、越雾；
-            越往画面底部越近、越大、越暗 —— 纵深就是这么来的，明暗由字符的疏密和颜色一起表达。
+            现在的背景是一张<strong>实时画出来的字符画</strong>，从上到下分三段：天空（星云、星、一轮月）、
+            中间的<strong>流星带</strong>、以及大海（浪，和月光碎在水面上的那条路）。
+            整片天空连同星和月一起向左缓慢漂移，月亮在水上的那条光路跟着它挪；
+            越靠近地平线越远、越淡、越雾，越往画面底部越近、越大、越暗 —— 纵深就是这么来的。
+          </p>
+          <p>
+            流星带里，一个个字符从带顶落向地平线：进场时慢慢亮起，中段最亮，再一路暗下去熄灭，
+            尾巴在后面一级一级变淡。字符网格这一版也加密了将近一倍，所以画面比上一版细得多。
           </p>
           <p>
             字集可以随时换：<strong>ASCII</strong> 用 <code class="ramp">.,:;-~=+*#%@</code> 从暗排到亮；
@@ -533,6 +549,17 @@ const description =
       type Mode = 'ascii' | 'binary';
 
       const TAU = Math.PI * 2;
+
+      /* 天空向左漂移的速度：每秒推进视口宽度的比例。
+         0.0075 = 一分钟走掉小半个屏 —— 慢到不会让人分心，又足够在一首歌里看出变化。 */
+      const SKY_DRIFT = 0.0075;
+
+      /* 画面三段的分界（占视口高度的比例）：天空 → 流星带 → 海面。
+         中间这段就是新长出来的「背景长度」：天和海不再硬碰硬地接在一起，
+         而是隔着一整条过渡带，纵深也就多了一层。 */
+      const SKY_EDGE = 0.45;
+      const SEA_EDGE = 0.63;
+
       const FONT =
         'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "PingFang SC", "Microsoft YaHei", monospace';
 
@@ -570,6 +597,11 @@ const description =
       }
 
       const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+      /** 取模，结果永远落在 [0, m)：天空里的东西绕到另一端时用它 */
+      const wrap = (v: number, m: number) => {
+        const r = v % m;
+        return r < 0 ? r + m : r;
+      };
       const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
       const smoothstep = (a: number, b: number, x: number) => {
         if (a === b) return x < a ? 0 : 1;
@@ -615,6 +647,19 @@ const description =
         tw: number;
       }
 
+      /** 一颗流星：一条定死的轨道，之后只按时间循环，没有任何逐帧随机 */
+      interface Meteor {
+        x: number;
+        par: number;
+        speed: number;
+        phase: number;
+        len: number;
+        slant: number;
+        gain: number;
+        hue: number;
+        sat: number;
+      }
+
       const canvas = document.getElementById('field') as HTMLCanvasElement | null;
       const ctx = canvas?.getContext('2d', { alpha: true }) ?? null;
       const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -625,13 +670,15 @@ const description =
       let rows = 0;
       let cellW = 8;
       let cellH = 16;
+      let bandTop = 0;
       let horizon = 0;
       let aspect = 1.7;
       let intensity = new Float32Array(0);
       let hueBuf = new Float32Array(0);
       let satBuf = new Float32Array(0);
       let stars: Star[] = [];
-      let moonX = 0;
+      let meteors: Meteor[] = [];
+      let moonX0 = 0;
       let moonY = 0;
       let moonR = 4;
       let mode: Mode = 'ascii';
@@ -650,9 +697,9 @@ const description =
         satBuf[idx] = s;
       };
 
-      /** 星星只在初始化时撒一次，之后位置不动 —— 会动的只有它们的呼吸。 */
+      /** 星星只在初始化时撒一次，横向位置交给漂移，之后不动的只有它们的呼吸。 */
       const buildStars = () => {
-        const count = Math.round(Math.min(300, cols * 1.6));
+        const count = Math.round(Math.min(340, cols * 1.35));
         stars = [];
         for (let i = 0; i < count; i += 1) {
           // 大多数星星都很暗很远，亮的只有少数几颗 —— 密度一平均就变成噪点
@@ -660,12 +707,32 @@ const description =
           const warm = Math.random() < 0.22;
           stars.push({
             x: Math.random() * cols,
-            y: Math.random() * Math.max(2, horizon * 0.96),
+            y: Math.random() * Math.max(2, bandTop * 0.98),
             z,
             hue: warm ? 0.09 + Math.random() * 0.05 : 0.52 + Math.random() * 0.1,
             sat: warm ? 0.45 : 0.08 + Math.random() * 0.34,
             phase: Math.random() * TAU,
             tw: 0.3 + Math.random() * 0.8,
+          });
+        }
+      };
+
+      /** 流星带里的流星：轨道、速度、相位在初始化时一次定死 */
+      const buildMeteors = () => {
+        const count = Math.round(clamp(cols * 0.11, 8, 22));
+        meteors = [];
+        for (let i = 0; i < count; i += 1) {
+          const warm = Math.random() < 0.24;
+          meteors.push({
+            x: Math.random() * cols,
+            par: 0.55 + Math.random() * 0.45, // 跟着天空漂移的系数
+            speed: 0.34 + Math.random() * 0.5, // 每秒走完轨道全长的几分之一
+            phase: Math.random(), // 各自的相位：免得一起掉下来
+            len: 4 + Math.floor(Math.random() * 7), // 尾巴长度（行）
+            slant: 2 + Math.random() * 8, // 整段下落里向左偏多少列
+            gain: 0.76 + Math.random() * 0.34,
+            hue: warm ? 0.08 + Math.random() * 0.05 : 0.5 + Math.random() * 0.1,
+            sat: warm ? 0.5 : 0.14 + Math.random() * 0.3,
           });
         }
       };
@@ -678,9 +745,10 @@ const description =
         H = Math.max(400, Math.round(window.innerHeight));
         const dpr = clamp(window.devicePixelRatio || 1, 1, 1.75);
 
-        const targetCols = Math.round(
-          clamp((W / 11.6) * quality, 46, 148),
-        );
+        // 字符密度：一列约 7.2px，比上一版密了将近三倍。
+        // 上限 220 列是给超宽屏兜底的 —— 实测这个密度每帧只要几毫秒，
+        // 真掉帧了还有 considerDegrade() 在下面接着。
+        const targetCols = Math.round(clamp((W / 7.2) * quality, 54, 220));
 
         // 用「十个 M 的宽度」反推字号，保证列宽正好是一个等宽字符的宽度。
         let fontSize = Math.max(9, W / (targetCols * 0.6));
@@ -714,28 +782,35 @@ const description =
         hueBuf = new Float32Array(cols * rows);
         satBuf = new Float32Array(cols * rows);
 
-        // 地平线钉在视口正中：上面是宇宙，下面是大海
-        horizon = Math.round(rows * 0.5);
-        moonX = cols * 0.735;
-        moonY = horizon * 0.34;
-        moonR = Math.max(3.2, Math.min(cols * 0.038, horizon * 0.26));
+        // 三段分界：上面是宇宙，中间是流星带，下面是大海
+        bandTop = Math.round(rows * SKY_EDGE);
+        horizon = Math.round(rows * SEA_EDGE);
+        moonX0 = cols * 0.735;
+        moonY = bandTop * 0.36;
+        moonR = Math.max(3.2, Math.min(cols * 0.032, bandTop * 0.24));
 
         buildStars();
+        buildMeteors();
       };
 
       /** 把这一帧的「星海」写进 intensity / hue / sat 三个缓冲 */
       const drawScene = (t: number) => {
         intensity.fill(0);
 
-        /* ---------- 1) 星云：天空的底色，紫到品红，极缓慢地漂 ---------- */
-        for (let y = 0; y < horizon; y += 1) {
+        /* 整片天空向左漂了多少列。星云、星、月都从这里取位移：
+           同一个 drift 配不同的系数，就是一层一层的视差。 */
+        const drift = t * SKY_DRIFT * cols;
+
+        /* ---------- 1) 星云：天空的底色，紫到品红，跟着天一起往左漂 ---------- */
+        for (let y = 0; y < bandTop; y += 1) {
           // 阈值拉高：噪声只有最高的那一部分才结成云，天空大部分留黑 —— 太空本来就该是空的
           const nfade =
-            smoothstep(0, horizon * 0.1, y) * (1 - 0.7 * smoothstep(horizon * 0.78, horizon, y));
+            smoothstep(0, bandTop * 0.1, y) * (1 - 0.7 * smoothstep(bandTop * 0.78, bandTop, y));
           if (nfade <= 0.002) continue;
           const ny = y * 0.042;
           for (let x = 0; x < cols; x += 1) {
-            const nx = x * 0.023 + t * 0.004;
+            // 云是最远的一层，只走星星三分之一的位移
+            const nx = (x + drift * 0.36) * 0.023;
             const a = smoothstep(0.6, 1, fbm(nx, ny));
             if (a <= 0.02) continue;
             const idx = y * cols + x;
@@ -747,14 +822,62 @@ const description =
           }
         }
 
-        /* ---------- 2) 星星：越近越亮的点，加一点点很慢的呼吸 ---------- */
+        /* ---------- 2) 流星带：天与海之间新长出来的一段 ----------
+           这一段里没有实体，只有一层越往下越浓的雾 —— 大气最远的那一头。
+           单格都暗到几乎看不见，几十行叠起来才成一条过渡带。 */
+        for (let y = bandTop; y < horizon; y += 1) {
+          const v = (y - bandTop) / Math.max(1, horizon - bandTop); // 0 = 带顶，1 = 地平线
+          const mist = (0.03 + 0.13 * Math.pow(v, 1.5)) * 0.9;
+          const ny = y * 0.05;
+          for (let x = 0; x < cols; x += 1) {
+            const nx = (x + drift * 0.3) * 0.021;
+            const n =
+              valueNoise(nx, ny + 3.3) * 0.62 + valueNoise(nx * 2.1 + 9.7, ny * 2.2) * 0.38;
+            const b = mist * (0.35 + 1.05 * n);
+            if (b <= 0.012) continue;
+            // 从上到下由紫转青：接住上面的星云，也接住下面的地平线
+            plot(x, y, b, lerp(0.72, 0.545, v), 0.52);
+          }
+        }
+
+        /* ---------- 3) 流星：一个个字符从带顶落向地平线 ----------
+           每颗流星有自己的轨道和周期，亮度走一条 sin 曲线 —— 进场时慢慢亮起来，
+           中段最亮，然后一路暗下去熄灭，尾巴在后面一级一级变淡。
+           位置全是时间的函数，没有任何逐帧随机数（那会变成闪烁，就又成噪音了）。 */
+        const bandH = horizon - bandTop + 1;
+        for (let i = 0; i < meteors.length; i += 1) {
+          const m = meteors[i];
+          const p = (t * m.speed + m.phase) % 1;
+          const headY = bandTop - m.len + p * (bandH + m.len);
+          // 亮度只跟「掉到带里的哪个位置」有关，跟尾巴多长无关：
+          // prog=0 刚进带顶（暗）→ 0.5 中段（最亮）→ 1 到地平线（又暗下去）。
+          const prog = (headY - bandTop) / bandH;
+          if (prog <= 0 || prog >= 1) continue;
+          const env = Math.pow(Math.sin(prog * Math.PI), 1.25);
+          const mx = wrap(m.x - drift * m.par - p * m.slant, cols);
+          for (let k = 0; k < m.len; k += 1) {
+            const y = Math.round(headY - k);
+            if (y < bandTop || y >= horizon) continue;
+            const b = env * Math.pow(1 - k / m.len, 2.2) * m.gain;
+            if (b <= 0.05) continue;
+            // 尾巴往右上拖，因为它是在往左下掉
+            plot(Math.round(mx + k * 0.24), y, b, m.hue, m.sat);
+          }
+        }
+
+        /* ---------- 4) 星星：越近越亮的点，加一点点很慢的呼吸 ---------- */
         for (let i = 0; i < stars.length; i += 1) {
           const s = stars[i];
+          // 位移按 z 分档：近的（z 大）跑得快，远的几乎黏在星云上 —— 第二层视差
+          const sx = wrap(s.x - drift * (0.5 + 1.05 * s.z), cols);
+          // 走到两端就淡进淡出，否则绕回来那一瞬间会「啪」地冒出一颗
+          const edge = smoothstep(0, 5, sx) * smoothstep(0, 5, cols - sx);
+          if (edge <= 0.02) continue;
           const twinkle = 0.72 + 0.28 * Math.sin(t * s.tw + s.phase);
-          const fade = 1 - 0.82 * smoothstep(horizon * 0.72, horizon, s.y);
-          const b = (0.06 + 0.92 * s.z) * twinkle * fade;
+          const fade = 1 - 0.82 * smoothstep(bandTop * 0.72, bandTop, s.y);
+          const b = (0.06 + 0.92 * s.z) * twinkle * fade * edge;
           if (b <= 0.05) continue;
-          const xi = Math.round(s.x);
+          const xi = Math.round(sx);
           const yi = Math.round(s.y);
           plot(xi, yi, b, s.hue, s.sat);
           if (s.z > 0.68) {
@@ -773,29 +896,34 @@ const description =
           }
         }
 
-        /* ---------- 3) 月亮：画面唯一的实体，也是海面那条光路的源头 ---------- */
+        /* ---------- 5) 月亮：画面唯一的实体，也是海面那条光路的源头 ---------- */
+        const moonXs = wrap(moonX0 - drift * 0.78, cols);
+        /* 月亮从左边落下、从右边升起。换位那一瞬，它和它在水上的那条路
+           一起淡到看不见，所以没人会看到「跳一下」。 */
+        const moonWin = Math.max(moonR * 2.4, cols * 0.075);
+        const moonFade = smoothstep(0, moonWin, moonXs) * smoothstep(0, moonWin, cols - moonXs);
         const y0 = Math.max(0, Math.floor(moonY - moonR * aspect - 2));
         const y1 = Math.min(rows - 1, Math.ceil(moonY + moonR * aspect + 2));
-        const x0 = Math.max(0, Math.floor(moonX - moonR - 2));
-        const x1 = Math.min(cols - 1, Math.ceil(moonX + moonR + 2));
+        const x0 = Math.max(0, Math.floor(moonXs - moonR - 2));
+        const x1 = Math.min(cols - 1, Math.ceil(moonXs + moonR + 2));
         for (let y = y0; y <= y1; y += 1) {
           for (let x = x0; x <= x1; x += 1) {
-            const d = Math.hypot(x - moonX, (y - moonY) * aspect) / moonR;
+            const d = Math.hypot(x - moonXs, (y - moonY) * aspect) / moonR;
             if (d <= 1) {
               // 中心亮、边缘收一点 = 球的体积感；叠一层低频噪声做出月海的斑驳。
               // 亮度刻意压在 1 以下，让圆盘里有 # % @ 的层次，而不是糊成一块白。
               const sphere = 0.86 + 0.26 * (1 - d * d);
               const mare = 0.84 + 0.3 * valueNoise(x * 0.42 + 11.7, y * 0.42 + 4.3);
-              const edge = smoothstep(1, 0.86, d);
-              plot(x, y, 1.04 * sphere * mare * edge, 0.12, 0.26);
+              const rim = smoothstep(1, 0.86, d);
+              plot(x, y, 1.04 * sphere * mare * rim * moonFade, 0.12, 0.26);
             } else if (d < 1.5) {
-              const g = Math.pow(1 - (d - 1) / 0.5, 2.2) * 0.2;
+              const g = Math.pow(1 - (d - 1) / 0.5, 2.2) * 0.2 * moonFade;
               if (g > 0.02) plot(x, y, g, 0.125, 0.4);
             }
           }
         }
 
-        /* ---------- 4) 地平线：天与海的分界，也是纵深的最远处 ---------- */
+        /* ---------- 6) 地平线：流星带与海的分界，也是纵深的最远处 ---------- */
         for (let y = Math.max(0, horizon - 5); y <= Math.min(rows - 1, horizon + 4); y += 1) {
           const g = Math.exp(-Math.pow((y - horizon - 0.2) / 0.95, 2));
           if (g < 0.01) continue;
@@ -811,7 +939,7 @@ const description =
           }
         }
 
-        /* ---------- 5) 海面：透视压缩的浪 + 月光碎成的一条路 ---------- */
+        /* ---------- 7) 海面：透视压缩的浪 + 月光碎成的一条路 ---------- */
         const seaRows = rows - horizon;
         /* 浪线沿「距离」方向排布，而不是沿屏幕方向。
            近处的浪一波要占十几行，远处的浪一行就好几波 —— 这种疏密差就是纵深感本身。
@@ -850,9 +978,12 @@ const description =
             // 一片浪的大小有别：成组的浪头才不像拉出来的条纹
             const group = 0.5 + 0.5 * valueNoise(x * 0.045 + 17.3, vseed * 2.1);
 
-            const dx = (x - moonX) / spread;
+            // 月光那条路钉在月亮的横坐标上：月亮往左挪一格，水上碎光就跟一格；
+            // 月亮淡出时这条路也一起淡掉，所以月亮「落下去」时海面是真的暗下来。
+            const dx = (x - moonXs) / spread;
             const shimmer = 0.5 + 0.5 * Math.sin(t * 1.7 + y * 0.55 + x * 0.11);
-            const glitter = crest * Math.exp(-dx * dx * 3.6) * (0.18 + 0.72 * near) * shimmer;
+            const glitter =
+              crest * Math.exp(-dx * dx * 3.6) * (0.18 + 0.72 * near) * shimmer * moonFade;
 
             // 远处的光雾也要有横向的疏密，否则地平线下面会是一条平滑的色带
             const farPatch = 0.55 + 0.9 * valueNoise(x * 0.06 + 5.1, v * 26 + 11.3);
