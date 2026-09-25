@@ -1,57 +1,66 @@
 ---
 /**
- * /wired/ —— 手工风格的入口页（Webcore / Neocities 审美）
+ * /wired/ —— 星海（WIRED NODE）
  *
- * 设计约束（刻意和主站相反，但遵循同一套工程底线）：
- *   1. 不引任何外部字体、第三方脚本、图片、音频文件 —— 纹理由 CSS 生成，音效由 Web Audio 合成。
- *   2. 样式用 <style is:inline> 内联：因为 astro.config.mjs 设了 vite.build.cssCodeSplit = false，
- *      走正常 <style> 会被打进全站那份 style.css，主站也得跟着下载这一页的样式。
- *   3. 不用 BaseLayout：这一页不该带主站的导航 / 页脚 / 滚动进度条。
- *   4. 无 JS 时不能锁死内容 —— 入场门只在检测到 JS 后才显示。
+ * 这一版的目标只有一个：把背景做成一张「上半为宇宙、下半为大海」的实时字符画，
+ * 并且有真正的纵深感 —— 近处大而暗、远处小而糊，中间一条发光的地平线。
+ *
+ * 画法（全部在浏览器里现算，没有任何图片 / 字体 / 音频文件）：
+ *   1. 把视口切成等宽字符网格（列宽 = 实测字宽，所以网格严格对齐）。
+ *   2. 每帧给每个格子算一个「亮度 + 色相 + 饱和度」，分五层叠加：
+ *        星云（缓慢漂移的噪声云） → 星星（三层视差 + 很慢的闪烁）
+ *        → 月亮（唯一的高光） → 地平线光带 → 海面（透视压缩的浪 + 月光碎路）
+ *   3. 亮度决定字形（ASCII 密度阶梯，或 0/1 的有序抖动）与颜色深浅。
+ *
+ * 上一版这里的「噪音」全部删掉了：
+ *   没有 glitch、没有扫描线、没有 CRT 闪烁、没有跑马灯、没有随机跳动的信号灯、
+ *   没有拖拽弹窗、没有恼人的悬停音效。剩下的只有缓慢的星与潮。
+ *
+ * 工程底线（与主站一致）：
+ *   - 零外部资源；无 JS 时不留白屏（背景退化成 CSS 渐变，正文照常可读）。
+ *   - prefers-reduced-motion 下只画一帧静态画面，不做任何循环动画。
+ *   - 帧率自适应：掉帧就自动降低字符密度，而不是让风扇起飞。
+ *   - 切到后台立刻停掉 requestAnimationFrame。
  */
 const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : undefined;
-const title = 'WIRED NODE · ZAKURA';
-const description = 'za4ever.com 的手工分站：CRT 叠层、终端回显、Web Audio 合成音效，零外部素材。';
+const year = new Date().getFullYear();
+const title = 'WIRED NODE · 星海';
+const description =
+  'za4ever.com 的手工分站：上半为宇宙、下半为大海的实时字符画，可在 ASCII 与 01 两种字集之间切换。';
 ---
 
 <!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
     <meta name="description" content={description} />
     <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#0b0b10" />
+    <meta name="theme-color" content="#04060d" />
     {canonical && <link rel="canonical" href={canonical} />}
     <meta property="og:type" content="website" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     {canonical && <meta property="og:url" content={canonical} />}
-    <script is:inline>
-      // 让入场门只在 JS 可用时出现：禁用 JS 的读者不该被挡在门外。
-      document.documentElement.dataset.js = 'on';
-    </script>
 
     <style is:inline>
       /* ============================================================
-         WIRED NODE —— 一套独立的设计令牌
-         主站是「顺滑、克制、系统字体」；这里是「跳变、硬边框、等宽」。
+         设计令牌：一套「深夜海面」的配色。
+         主站是顺滑克制的系统字体；这里是等宽字符 + 硬边框。
          ============================================================ */
       :root {
-        --w-bg: #0b0b10;
-        --w-panel: #12121a;
-        --w-line: #2a2a38;
-        --w-pink: #d2738a;
-        --w-sand: #c1b492;
-        --w-cyan: #59cfff;
-        --w-glow: rgba(89, 207, 255, 0.65);
-        /* 不加载外部像素字体（国内访问 Google Fonts 太慢）：用系统等宽 + 字距做出点阵感。
-           想上真点阵字体，把子集化后的 woff2 放进 public/fonts/ 再 @font-face 即可。 */
-        --w-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-          "PingFang SC", "Microsoft YaHei", monospace;
+        --bg: #04060d;
+        --ink: #d6e9f7;
+        --dim: #9db4c8;
+        --faint: #7c93a8;
+        --cyan: #7fe6ff;
+        --violet: #b79bff;
+        --line: rgba(150, 205, 255, 0.2);
+        --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "PingFang SC",
+          "Microsoft YaHei", monospace;
       }
 
       *,
@@ -67,778 +76,967 @@ const description = 'za4ever.com 的手工分站：CRT 叠层、终端回显、W
       body {
         margin: 0;
         min-height: 100svh;
-        color: var(--w-sand);
-        background-color: var(--w-bg);
-        /* 假平铺纹理：两层 repeating-gradient 模拟 4×4 像素贴图，零图片请求。
-           想换成真 GIF，注释下面两行，改成：
-             background-image: url('/wired/bg-tile.gif');
-             background-repeat: repeat;                                        */
-        background-image:
-          repeating-linear-gradient(0deg, rgba(210, 115, 138, 0.055) 0 2px, transparent 2px 4px),
-          repeating-linear-gradient(90deg, rgba(89, 207, 255, 0.035) 0 2px, transparent 2px 4px);
-        font-family: var(--w-mono);
-        font-size: 17px;
-        line-height: 1.6;
-        letter-spacing: 0.04em;
-        image-rendering: pixelated;
+        color: var(--ink);
+        background-color: var(--bg);
+        /* 无 JS 时的兜底画面：同一套配色的垂直渐变，地平线钉在视口正中。
+           Canvas 是透明的，只往上叠字符，所以这层渐变同时也是整页的底色。 */
+        background-image: linear-gradient(
+          to bottom,
+          #03050c 0%,
+          #070818 20%,
+          #120c26 36%,
+          #1e1138 47.5%,
+          rgba(110, 210, 240, 0.3) 49.6%,
+          rgba(110, 210, 240, 0.3) 50.4%,
+          #0a2036 51.5%,
+          #08192b 66%,
+          #050f1d 81%,
+          #02050b 100%
+        );
+        background-attachment: fixed;
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.75;
+        letter-spacing: 0.02em;
         overflow-x: hidden;
       }
 
-      a {
-        color: var(--w-pink);
-        text-decoration: none;
-      }
-
-      a:hover {
-        color: var(--w-cyan);
-        text-shadow: 0 0 8px var(--w-glow);
-      }
-
-      a:focus-visible,
-      button:focus-visible {
-        outline: 2px solid var(--w-cyan);
-        outline-offset: 2px;
-      }
-
-      .wrap {
-        max-width: 860px;
-        margin: 0 auto;
-        padding: 2.5rem 1.25rem 4rem;
+      /* 字符画本体：铺满视口、固定在背景层，永远不接鼠标事件 */
+      #field {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
       }
 
       .skip-link {
         position: absolute;
         left: -9999px;
         top: 0;
-        z-index: 200;
+        z-index: 90;
         padding: 0.6rem 1rem;
-        background: var(--w-cyan);
-        color: #06121a;
+        background: var(--cyan);
+        color: #04121a;
       }
 
       .skip-link:focus {
-        left: 0.5rem;
-        top: 0.5rem;
+        left: 0.75rem;
+        top: 0.75rem;
       }
 
-      /* ============================================================
-         1) CRT 叠层：扫描线 + 暗角 + 偶发闪烁
-         全部 pointer-events: none，绝不拦截点击。
-         ============================================================ */
-      .crt {
-        position: fixed;
-        inset: 0;
-        z-index: 90;
-        pointer-events: none;
+      a {
+        color: var(--dim);
+        text-decoration: none;
       }
 
-      .crt__lines {
-        position: absolute;
-        inset: 0;
-        background: repeating-linear-gradient(
-          to bottom,
-          rgba(255, 255, 255, 0.045) 0 1px,
-          transparent 1px 3px
-        );
-        mix-blend-mode: overlay;
+      a:hover {
+        color: var(--cyan);
       }
 
-      .crt__vignette {
-        position: absolute;
-        inset: 0;
-        background: radial-gradient(ellipse at center, transparent 52%, rgba(0, 0, 0, 0.88) 100%);
+      :focus-visible {
+        outline: 2px solid var(--cyan);
+        outline-offset: 3px;
       }
 
-      .crt__flicker {
-        position: absolute;
-        inset: 0;
-        background: rgba(210, 115, 138, 0.04);
-        animation: w-flicker 4.2s steps(2) infinite;
-      }
-
-      @keyframes w-flicker {
-        0%, 97%, 100% { opacity: 0; }
-        98% { opacity: 1; }
-      }
-
-      /* ============================================================
-         2) 入场门：同时是「音频解锁」的合规入口
-         浏览器禁止无用户手势出声，所以先让读者点一下。
-         ============================================================ */
-      .gate {
-        display: none;
-      }
-
-      html[data-js='on'] .gate {
-        position: fixed;
-        inset: 0;
-        z-index: 100;
-        display: grid;
-        place-content: center;
-        gap: 1.4rem;
-        padding: 1.5rem;
-        text-align: center;
-        background: rgba(6, 6, 10, 0.96);
-        transition: opacity 0.5s ease, visibility 0.5s;
-      }
-
-      .gate.is-gone {
-        opacity: 0;
-        visibility: hidden;
-      }
-
-      .gate__btn {
-        font: inherit;
-        font-size: 0.95rem;
-        letter-spacing: 0.2em;
-        padding: 1rem 1.5rem;
-        color: var(--w-cyan);
-        background: transparent;
-        border: 2px solid var(--w-cyan);
-        cursor: pointer;
-        text-shadow: 0 0 10px var(--w-glow);
-        box-shadow: 0 0 0 1px #000, 4px 4px 0 rgba(0, 0, 0, 0.6);
-      }
-
-      .gate__btn:hover {
-        background: rgba(89, 207, 255, 0.12);
-      }
-
-      .gate p {
-        margin: 0;
-        font-size: 0.82rem;
-        opacity: 0.72;
-      }
-
-      .gate .hint {
-        opacity: 0.5;
-      }
-
-      /* ============================================================
-         3) 标题：glitch 靠 ::before/::after 错位 + clip-path 切片
-         steps() 让抖动是「跳变」而非平滑 —— 味道的来源。
-         ============================================================ */
-      .glitch {
+      .page {
         position: relative;
-        display: inline-block;
-        margin: 0;
-        font-size: clamp(1.4rem, 5.5vw, 2.4rem);
-        font-weight: 700;
-        line-height: 1.35;
-        letter-spacing: 0.08em;
-        color: var(--w-cyan);
-        text-shadow: 0 0 12px var(--w-glow);
-      }
-
-      .glitch::before,
-      .glitch::after {
-        content: attr(data-text);
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-      }
-
-      .glitch::before {
-        color: #00ffff;
-        animation: w-glitch 2.4s steps(2) infinite;
-      }
-
-      .glitch::after {
-        color: #ff3b6b;
-        animation: w-glitch 1.7s steps(2) infinite reverse;
-      }
-
-      @keyframes w-glitch {
-        0%, 91%, 100% { transform: translate(0, 0); clip-path: inset(0 0 0 0); }
-        93% { transform: translate(-3px, 1px); clip-path: inset(14% 0 58% 0); }
-        96% { transform: translate(3px, -2px); clip-path: inset(52% 0 22% 0); }
-      }
-
-      .sub {
-        margin: 0.7rem 0 0;
-        font-size: 0.84rem;
-        opacity: 0.8;
+        z-index: 1;
       }
 
       /* ============================================================
-         4) 跑马灯
+         首屏：把标题放在地平线以上的天空里
          ============================================================ */
-      .ticker {
-        overflow: hidden;
-        margin: 1.6rem 0;
-        white-space: nowrap;
-        border-top: 1px solid var(--w-line);
-        border-bottom: 1px solid var(--w-line);
-        background: rgba(210, 115, 138, 0.06);
-      }
-
-      .ticker span {
-        display: inline-block;
-        padding-left: 100%;
-        color: var(--w-pink);
-        font-size: 0.82rem;
-        animation: w-slide 26s linear infinite;
-      }
-
-      @keyframes w-slide {
-        to { transform: translateX(-100%); }
-      }
-
-      /* ============================================================
-         5) 面板：硬边框 + 硬阴影，拒绝圆角
-         ============================================================ */
-      .grid {
+      .hero {
+        min-height: 100svh;
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(258px, 1fr));
-        gap: 0.9rem;
+        align-content: center;
+        justify-items: center;
+        text-align: center;
+        /* 下边留出大片海面：正文整体落在天与海的分界之上 */
+        padding: 2.5rem 1.25rem 42vh;
+      }
+
+      .hero__inner {
+        display: grid;
+        gap: 1rem;
+        justify-items: center;
+        max-width: 46rem;
+        padding: 2.5rem 2rem;
+        /* 一团柔和的暗色晕圈：压住背后的字符，保证文字始终读得清。
+           它不是边框也不是卡片，所以看起来仍然像「字浮在星海上」。 */
+        background: radial-gradient(
+          ellipse at center,
+          rgba(3, 6, 14, 0.9) 0%,
+          rgba(3, 6, 14, 0.68) 42%,
+          rgba(3, 6, 14, 0.24) 68%,
+          rgba(3, 6, 14, 0) 84%
+        );
+      }
+
+      .eyebrow {
+        margin: 0;
+        font-size: 0.7rem;
+        letter-spacing: 0.36em;
+        text-transform: uppercase;
+        color: var(--faint);
+      }
+
+      .hero__title {
+        margin: 0;
+        font-size: clamp(1.8rem, 8vw, 3.9rem);
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        color: #eef8ff;
+        text-shadow: 0 0 28px rgba(120, 220, 255, 0.42), 0 2px 26px rgba(0, 0, 0, 0.9);
+      }
+
+      .hero__lede {
+        margin: 0;
+        color: var(--dim);
+        font-size: 0.95rem;
+        text-shadow: 0 1px 16px rgba(0, 0, 0, 0.95);
+      }
+
+      /* 字集开关：对应参考站里的 charset 选择 */
+      .seg {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-top: 0.6rem;
+        padding: 0.3rem 0.4rem 0.3rem 0.85rem;
+        border: 1px solid var(--line);
+        background: rgba(5, 9, 18, 0.66);
+        backdrop-filter: blur(7px);
+      }
+
+      .seg__label {
+        font-size: 0.7rem;
+        letter-spacing: 0.24em;
+        color: var(--faint);
+      }
+
+      .seg__btn {
+        font: inherit;
+        font-size: 0.8rem;
+        letter-spacing: 0.14em;
+        padding: 0.3rem 0.9rem;
+        color: var(--dim);
+        background: transparent;
+        border: 1px solid transparent;
+        cursor: pointer;
+      }
+
+      .seg__btn:hover {
+        color: var(--cyan);
+      }
+
+      .seg__btn[aria-pressed='true'] {
+        color: #04121a;
+        background: var(--cyan);
+        border-color: var(--cyan);
+      }
+
+      .hero__hint {
+        margin: 0;
+        padding: 0.3rem 0.9rem;
+        border-radius: 999px;
+        /* 这行字正落在地平线的光带上，给一层极淡的底，省得被浪尖吃掉 */
+        background: rgba(4, 7, 14, 0.58);
+        font-size: 0.74rem;
+        letter-spacing: 0.1em;
+        color: var(--faint);
+        text-shadow: 0 1px 12px rgba(0, 0, 0, 0.9);
+      }
+
+      /* ============================================================
+         正文面板：半透明深色底 + 毛玻璃，保证字符画上也能读
+         ============================================================ */
+      main {
+        max-width: 56rem;
+        margin: 0 auto;
+        padding: 0 1.25rem 1.15rem;
+        display: grid;
+        gap: 1.15rem;
       }
 
       .panel {
-        padding: 0.95rem 1.05rem;
-        background: var(--w-panel);
-        border: 1px solid var(--w-line);
-        box-shadow: 0 0 0 1px #000, 6px 6px 0 rgba(0, 0, 0, 0.6);
-      }
-
-      .panel--wide {
-        grid-column: 1 / -1;
+        padding: 1.4rem 1.5rem;
+        border: 1px solid var(--line);
+        /* 0.86 的不透明度：背后的字符画仍然透得出来，但正文不会被浪尖的高光咬碎。
+           毛玻璃只是锦上添花 —— 有些环境（关掉 GPU 合成）不会生效，所以底色必须自己够实。 */
+        background: rgba(4, 8, 17, 0.86);
+        backdrop-filter: blur(14px) saturate(120%);
+        box-shadow: 0 20px 54px rgba(0, 0, 0, 0.4);
       }
 
       .panel h2 {
-        margin: 0 0 0.7rem;
-        font-size: 0.72rem;
+        margin: 0 0 0.9rem;
+        font-size: 0.74rem;
         font-weight: 700;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        color: var(--cyan);
+      }
+
+      .panel p {
+        margin: 0 0 0.9rem;
+        color: var(--dim);
+        max-width: 44rem;
+      }
+
+      .panel p:last-child {
+        margin-bottom: 0;
+      }
+
+      .panel strong {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      .ramp {
+        color: var(--cyan);
+        letter-spacing: 0.12em;
+        word-break: break-all;
+      }
+
+      /* 现场数据 */
+      .facts {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        gap: 1.1rem;
+        margin: 0;
+      }
+
+      .facts div {
+        padding-left: 0.9rem;
+        border-left: 1px solid var(--line);
+      }
+
+      .facts dt {
+        font-size: 0.7rem;
         letter-spacing: 0.22em;
         text-transform: uppercase;
-        color: var(--w-cyan);
+        color: var(--faint);
       }
 
-      .panel h2::before {
-        content: '▚ ';
-        color: var(--w-pink);
+      .facts dd {
+        margin: 0.35rem 0 0;
+        font-size: 1.05rem;
+        color: var(--ink);
       }
 
-      /* 终端回显 */
-      .term {
-        margin: 0;
-        min-height: 7.2em;
-        font-size: 0.86rem;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-
-      .caret {
-        display: inline-block;
-        width: 8px;
-        height: 15px;
-        margin-left: 1px;
-        vertical-align: -2px;
-        background: var(--w-cyan);
-        animation: w-blink 1s steps(2) infinite;
-      }
-
-      @keyframes w-blink {
-        50% { opacity: 0; }
-      }
-
-      /* 键值表 */
-      dl {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 0.25rem 0.9rem;
-        margin: 0;
-        font-size: 0.86rem;
-      }
-
-      dt { color: var(--w-pink); }
-      dd { margin: 0; text-align: right; }
-
-      /* LCD 计数 */
       .digits {
-        display: flex;
-        gap: 3px;
-        margin: 0.45rem 0 0.6rem;
+        display: inline-flex;
+        gap: 2px;
       }
 
       .digits i {
-        padding: 0.3rem 0.42rem;
         font-style: normal;
-        font-size: 0.82rem;
-        color: #ff8ea8;
-        background: #1a0b12;
-        border: 1px solid #40202c;
-        font-variant-numeric: tabular-nums;
+        padding: 0.1rem 0.35rem;
+        font-size: 0.95rem;
+        background: rgba(120, 220, 255, 0.1);
+        border: 1px solid rgba(120, 220, 255, 0.26);
+        color: #e2f5ff;
       }
 
       .digits[data-state='error'] i {
-        color: var(--w-sand);
-        background: #14141a;
-        border-color: var(--w-line);
+        color: var(--faint);
       }
 
-      /* 链接表 */
+      /* 链接列表 */
       .links {
+        list-style: none;
         margin: 0;
         padding: 0;
-        list-style: none;
-        font-size: 0.86rem;
-      }
-
-      .links li {
-        border-bottom: 1px dashed var(--w-line);
-      }
-
-      .links li:last-child {
-        border-bottom: 0;
       }
 
       .links a {
         display: flex;
+        align-items: baseline;
         justify-content: space-between;
         gap: 1rem;
-        padding: 0.42rem 0;
+        padding: 0.6rem 0.15rem;
+        border-bottom: 1px dashed rgba(150, 205, 255, 0.16);
+      }
+
+      .links li:last-child a {
+        border-bottom: 0;
       }
 
       .links small {
-        opacity: 0.5;
-      }
-
-      /* 88×31 站徽：Webcore 的经典尺寸，纯 CSS 画 */
-      .badges {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-
-      .badge {
-        display: grid;
-        place-content: center;
-        width: 88px;
-        height: 31px;
-        font-size: 0.52rem;
-        line-height: 1.5;
-        letter-spacing: 0.06em;
-        text-align: center;
-        color: #0b0b10;
-        background: linear-gradient(160deg, var(--w-cyan), var(--w-pink));
-        border: 1px solid #000;
-      }
-
-      .badge:hover {
-        color: #0b0b10;
-        text-shadow: none;
-        filter: invert(1);
+        font-size: 0.74rem;
+        color: var(--faint);
       }
 
       /* ============================================================
-         6) 可拖动的小窗口（OS 隐喻的最小实现）
-         手机上直接隐藏：拖拽在触屏上没有意义，只会挡内容。
-         ============================================================ */
-      .window {
-        position: fixed;
-        right: 20px;
-        bottom: 20px;
-        z-index: 80;
-        width: 292px;
-        background: var(--w-panel);
-        border: 2px solid var(--w-cyan);
-        box-shadow: 8px 8px 0 rgba(0, 0, 0, 0.65);
-        font-size: 0.84rem;
-      }
-
-      .window[hidden] {
-        display: none;
-      }
-
-      .window__bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 0.5rem;
-        padding: 3px 5px;
-        background: var(--w-cyan);
-        color: #06121a;
-        font-size: 0.7rem;
-        letter-spacing: 0.12em;
-        cursor: move;
-        user-select: none;
-        touch-action: none;
-      }
-
-      .window__bar button {
-        width: 17px;
-        height: 17px;
-        padding: 0;
-        font: inherit;
-        font-size: 0.66rem;
-        line-height: 1;
-        color: #06121a;
-        background: var(--w-pink);
-        border: 1px solid #06121a;
-        cursor: pointer;
-      }
-
-      .window__body {
-        padding: 0.7rem;
-      }
-
-      .window__body p {
-        margin: 0 0 0.5rem;
-      }
-
-      .window__body p:last-child {
-        margin-bottom: 0;
-      }
-
-      @media (max-width: 720px) {
-        .window {
-          display: none;
-        }
-      }
-
-      /* ============================================================
-         7) 页脚控件
+         页脚：音效开关与回程
          ============================================================ */
       .foot {
+        position: relative;
+        z-index: 1;
+        max-width: 56rem;
+        /* 与面板同一张底：页脚下的浪尖最密，没有这层底，版权行会被 1 与 @ 咬碎 */
+        margin: 0 auto 3rem;
+        padding: 1.1rem 1.5rem;
         display: flex;
         flex-wrap: wrap;
-        gap: 0.75rem 1rem;
+        gap: 0.9rem 1.5rem;
         align-items: center;
         justify-content: space-between;
-        margin-top: 2.25rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--w-line);
-        font-size: 0.8rem;
-        opacity: 0.85;
+        border: 1px solid var(--line);
+        background: rgba(4, 8, 17, 0.86);
+        backdrop-filter: blur(14px) saturate(120%);
+        box-shadow: 0 20px 54px rgba(0, 0, 0, 0.4);
+        color: var(--faint);
+        font-size: 0.78rem;
+      }
+
+      .foot__ctl {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
       }
 
       .foot button {
         font: inherit;
         font-size: 0.78rem;
-        color: var(--w-sand);
-        background: transparent;
-        border: 1px solid var(--w-line);
-        padding: 0.25rem 0.7rem;
+        padding: 0.4rem 0.9rem;
+        color: var(--dim);
+        background: rgba(5, 9, 18, 0.66);
+        border: 1px solid var(--line);
         cursor: pointer;
       }
 
       .foot button:hover {
-        color: var(--w-cyan);
-        border-color: var(--w-cyan);
+        color: var(--cyan);
+        border-color: var(--cyan);
       }
 
-      .foot__group {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-      }
-
-      /* ============================================================
-         8) 无障碍：系统开启「减少动态效果」后，一切跳变与循环全部停下。
-         注意：闪烁频率也必须踩在 3 Hz 以下（WCAG 2.3.1 光敏性癫痫红线）。
-         ============================================================ */
-      @media (prefers-reduced-motion: reduce) {
-        .glitch::before,
-        .glitch::after,
-        .caret,
-        .crt__flicker,
-        .ticker span {
-          animation: none;
+      @media (max-width: 640px) {
+        body {
+          font-size: 14px;
         }
 
-        .ticker {
-          white-space: normal;
+        .hero {
+          padding: 2rem 1.25rem 40vh;
         }
 
-        .ticker span {
-          display: block;
-          padding-left: 0;
+        .hero__inner {
+          padding: 1.75rem 0.75rem;
+        }
+
+        .hero__title {
+          font-size: clamp(1.4rem, 6.6vw, 2.2rem);
+          letter-spacing: 0.1em;
+        }
+
+        .panel {
+          padding: 1.15rem 1.1rem;
         }
       }
     </style>
   </head>
 
   <body>
+    <canvas id="field" aria-hidden="true"></canvas>
+
     <a class="skip-link" href="#main">跳到主要内容</a>
 
-    <!-- 入场门：只在 JS 可用时显示（见 head 里的 data-js 标记） -->
-    <div class="gate" id="gate">
-      <button class="gate__btn" id="gate-enter" type="button">▶ ENTER</button>
-      <p>点击进入会开启界面音效（可随时在页脚关闭）</p>
-      <p class="hint">本页不含任何图片与音频文件 · 纹理与音效均为实时生成</p>
-    </div>
+    <div class="page">
+      <header class="hero">
+        <div class="hero__inner">
+          <p class="eyebrow">za4ever.com / wired</p>
+          <h1 class="hero__title">WIRED NODE</h1>
+          <p class="hero__lede">
+            上半是宇宙，下半是大海。<br />
+            画面里的每一个点，都是一个字符。
+          </p>
 
-    <div class="crt" aria-hidden="true">
-      <div class="crt__lines"></div>
-      <div class="crt__vignette"></div>
-      <div class="crt__flicker"></div>
-    </div>
+          <div class="seg" role="group" aria-label="字符集">
+            <span class="seg__label">字集</span>
+            <button class="seg__btn" type="button" data-mode="ascii" aria-pressed="true">ASCII</button>
+            <button class="seg__btn" type="button" data-mode="binary" aria-pressed="false">01</button>
+          </div>
 
-    <div class="wrap">
-      <header>
-        <h1 class="glitch" data-text="WIRED NODE">WIRED NODE</h1>
-        <p class="sub">za4ever.com 的手工分站 · 无框架 · 无追踪 · 永久施工中</p>
+          <p class="hero__hint">星、月、潮都是现场算出来的 · 往下滚还有字 ↓</p>
+        </div>
       </header>
 
-      <div class="ticker" aria-hidden="true">
-        <span>
-          ✦ 这里是 WIRED NODE ✦ 样式手搓 ✦ 纹理与音效实时生成 ✦ 不加载外部字体 ✦ 不装任何统计脚本 ✦
-          建议把音量调小一点 ✦ 主站更正经，向右转 → za4ever.com ✦
-        </span>
-      </div>
-
       <main id="main">
-        <div class="grid">
-          <section class="panel">
-            <h2>System.Log</h2>
-            <p class="term" id="term"></p>
-          </section>
+        <section class="panel">
+          <h2>这一面</h2>
+          <p>
+            上一版这里是台 CRT 终端：扫描线、闪烁、跑马灯、随机跳的信号灯。那些都是噪音，这次删干净了。
+          </p>
+          <p>
+            现在的背景是一张<strong>实时画出来的字符画</strong>：上半是宇宙（星云、星、一轮月），
+            下半是大海（浪，以及月光碎在水面上的那条路）。越靠近地平线越远、越淡、越雾；
+            越往画面底部越近、越大、越暗 —— 纵深就是这么来的，明暗由字符的疏密和颜色一起表达。
+          </p>
+          <p>
+            字集可以随时换：<strong>ASCII</strong> 用 <code class="ramp">.,:;-~=+*#%@</code> 从暗排到亮；
+            <strong>01</strong> 只用 0 和 1，靠疏密表达明暗。整页没有一个图片、字体或音频文件，
+            想听潮声就打开页脚的开关。
+          </p>
+        </section>
 
-          <section class="panel">
-            <h2>Status</h2>
-            <dl>
-              <dt>节点</dt><dd>CF-EDGE</dd>
-              <dt>信号</dt><dd id="signal">▮▮▮▯▯</dd>
-              <dt>心情</dt><dd>信号不良</dd>
-              <dt>本地时间</dt><dd id="clock">--:--:--</dd>
-            </dl>
-          </section>
-
-          <section class="panel">
-            <h2>Counter</h2>
-            <p style="margin: 0; font-size: 0.86rem;">你是第</p>
-            <div class="digits" id="visit-digits" data-state="loading">
-              <i>—</i><i>—</i><i>—</i><i>—</i><i>—</i><i>—</i><i>—</i><i>—</i>
+        <section class="panel">
+          <h2>现场</h2>
+          <dl class="facts">
+            <div>
+              <dt>本地时间</dt>
+              <dd id="clock">--:--:--</dd>
             </div>
-            <p style="margin: 0; font-size: 0.78rem; opacity: 0.7;">
-              位访客 · 由 Pages Function + KV 实时统计<br />
-              <small>和主站页脚同源，同一个会话只计一次</small>
-            </p>
-          </section>
-
-          <section class="panel">
-            <h2>Links</h2>
-            <ul class="links">
-              <li><a href="/"><span>→ 回到主站</span><small>za4ever.com</small></a></li>
-              <li><a href="/notes/"><span>→ 笔记</span><small>/notes/</small></a></li>
-              <li><a href="/#sound"><span>→ 声音</span><small>/#sound</small></a></li>
-              <li>
-                <a href="https://github.com/sdffdsd/mywebzate" rel="noopener">
-                  <span>→ 源码仓库</span><small>github</small>
-                </a>
-              </li>
-            </ul>
-          </section>
-
-          <section class="panel panel--wide">
-            <h2>Webring</h2>
-            <div class="badges">
-              <span class="badge">ZAKURA<br />NODE</span>
-              <span class="badge">NO<br />TRACKERS</span>
-              <span class="badge">MADE BY<br />HAND</span>
-              <span class="badge">最好用<br />电脑看</span>
-              <span class="badge">88×31<br />CLASSIC</span>
+            <div>
+              <dt>当前字集</dt>
+              <dd id="mode-label">ASCII</dd>
             </div>
-          </section>
-        </div>
+            <div>
+              <dt>访客</dt>
+              <dd>
+                <span class="digits" id="visit-digits" data-state="loading">
+                  <i>—</i><i>—</i><i>—</i><i>—</i><i>—</i><i>—</i><i>—</i><i>—</i>
+                </span>
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="panel">
+          <h2>去哪</h2>
+          <ul class="links">
+            <li><a href="/"><span>回主站</span><small>za4ever.com</small></a></li>
+            <li><a href="/notes/"><span>笔记</span><small>/notes/</small></a></li>
+            <li>
+              <a href="https://github.com/sdffdsd/mywebzate" rel="noopener">
+                <span>源码仓库</span><small>github</small>
+              </a>
+            </li>
+          </ul>
+        </section>
       </main>
 
       <footer class="foot">
-        <span>© {new Date().getFullYear()} ZAKURA · 内容手写，样式手搓</span>
-        <span class="foot__group">
-          <button id="toggle-sound" type="button" aria-pressed="false">音效：关</button>
-          <button id="toggle-hum" type="button" aria-pressed="false">底噪：关</button>
+        <span>© {year} ZAKURA · 字符实时绘制，无图片无字体无音频文件</span>
+        <span class="foot__ctl">
+          <button id="toggle-sound" type="button" aria-pressed="false">潮声：关</button>
           <a href="/">← 回主站</a>
         </span>
       </footer>
     </div>
 
-    <div class="window" id="window" hidden>
-      <div class="window__bar" id="window-bar">
-        <span>readme.txt</span>
-        <button id="window-close" type="button" aria-label="关闭窗口">X</button>
-      </div>
-      <div class="window__body">
-        <p>这个窗口可以拖。</p>
-        <p>真实的 Webcore 站里，整个首页就是这样一个桌面 —— 这里是它的最小实现。</p>
-      </div>
-    </div>
-
     <script>
-      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      type Mode = 'ascii' | 'binary';
 
-      /* ---------- 音效：全部由 Web Audio 实时合成，不需要任何音频文件 ---------- */
-      let audioCtx: AudioContext | undefined;
-      let soundOn = false;
-      let humNodes: { osc: OscillatorNode; gain: GainNode }[] = [];
+      const TAU = Math.PI * 2;
+      const FONT =
+        'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "PingFang SC", "Microsoft YaHei", monospace';
 
-      const ensureCtx = (): AudioContext | undefined => {
-        const Ctor =
-          window.AudioContext ??
-          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (!Ctor) return undefined;
-        audioCtx ??= new Ctor();
-        return audioCtx;
+      /* 字符集：从暗到亮。
+         ASCII 是经典密度阶梯；01 只有两级，中间调交给有序抖动去表达。 */
+      const RAMPS: Record<Mode, string> = {
+        ascii: ' .,:;-~=+*#%@',
+        binary: ' 01',
       };
 
-      const beep = (freq = 880, dur = 0.05, vol = 0.035) => {
-        if (!soundOn) return;
-        const ctx = ensureCtx();
-        if (!ctx) return;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'square';
-        osc.frequency.value = freq;
-        gain.gain.value = vol;
-        osc.connect(gain).connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + dur);
-      };
+      /* 4×4 有序抖动矩阵（已归一化到 0..1）：
+         01 模式下，亮度高于阈值画 1，否则画 0 —— 一片区域的 1 越密就越亮。 */
+      const BAYER = new Float32Array([
+        0.03, 0.53, 0.16, 0.66,
+        0.78, 0.28, 0.91, 0.41,
+        0.19, 0.69, 0.09, 0.59,
+        0.94, 0.44, 0.84, 0.34,
+      ]);
 
-      /* 底噪：两个略微失谐的振荡器，模仿老显示器的嗡嗡声 */
-      const setHum = (on: boolean) => {
-        if (on) {
-          if (humNodes.length > 0) return;
-          const ctx = ensureCtx();
-          if (!ctx) return;
-          for (const freq of [60, 60.7]) {
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = freq === 60 ? 'sawtooth' : 'sine';
-            osc.frequency.value = freq;
-            gain.gain.value = 0.018;
-            osc.connect(gain).connect(ctx.destination);
-            osc.start();
-            humNodes.push({ osc, gain });
+      /* 颜色查表：把 (色相 × 饱和度 × 明度) 预先算成字符串，
+         每帧只做整数索引，避免在循环里拼字符串产生大量垃圾。 */
+      const HUE_STEPS = 32;
+      const SAT_STEPS = 4;
+      const LIT_STEPS = 22;
+      const palette: string[] = new Array(HUE_STEPS * SAT_STEPS * LIT_STEPS);
+      for (let h = 0; h < HUE_STEPS; h += 1) {
+        const hue = Math.round((h * 360) / HUE_STEPS);
+        for (let s = 0; s < SAT_STEPS; s += 1) {
+          const sat = Math.round((s / (SAT_STEPS - 1)) * 100);
+          for (let l = 0; l < LIT_STEPS; l += 1) {
+            const lit = Math.round(5 + (l / (LIT_STEPS - 1)) * 75);
+            palette[(h * SAT_STEPS + s) * LIT_STEPS + l] = `hsl(${hue}, ${sat}%, ${lit}%)`;
           }
-        } else {
-          for (const { osc, gain } of humNodes) {
-            try {
-              osc.stop();
-            } catch {
-              /* 已经停了，忽略 */
-            }
-            gain.disconnect();
-          }
-          humNodes = [];
-        }
-      };
-
-      /* ---------- 页脚开关（先声明，入场门里会用到） ---------- */
-      const soundBtn = document.getElementById('toggle-sound');
-      const humBtn = document.getElementById('toggle-hum');
-
-      const syncSoundButton = () => {
-        if (!soundBtn) return;
-        soundBtn.textContent = `音效：${soundOn ? '开' : '关'}`;
-        soundBtn.setAttribute('aria-pressed', String(soundOn));
-      };
-
-      /* ---------- 入场门 ---------- */
-      const gate = document.getElementById('gate');
-      const enterBtn = document.getElementById('gate-enter');
-
-      enterBtn?.addEventListener('click', () => {
-        // 必须在这个点击回调里创建 / 恢复 AudioContext，才不会被浏览器拦下
-        soundOn = true;
-        void ensureCtx()?.resume();
-        beep(1180, 0.08);
-        gate?.classList.add('is-gone');
-        gate?.setAttribute('aria-hidden', 'true');
-        if (enterBtn instanceof HTMLElement) enterBtn.tabIndex = -1;
-        syncSoundButton();
-      });
-
-      /* ---------- 悬停 / 点击音效（只在音效开启后生效） ---------- */
-      document.addEventListener(
-        'pointerover',
-        (event) => {
-          const target = event.target as Element | null;
-          if (target?.closest('a, button')) beep(1220, 0.035, 0.025);
-        },
-        { passive: true },
-      );
-
-      document.addEventListener('click', (event) => {
-        const target = event.target as Element | null;
-        if (target?.closest('a, button')) beep(300, 0.06);
-      });
-
-      /* ---------- 终端回显（打字机） ---------- */
-      const lines = [
-        '> 正在建立连接 . . . 完成',
-        '> 外部字体：0 个（改用系统等宽）',
-        '> 图片素材：0 个（纹理由 CSS 生成）',
-        '> 音频素材：0 个（Web Audio 实时合成）',
-        '> 欢迎回来，旅行者。',
-        '',
-      ];
-      const term = document.getElementById('term');
-      const caret = document.createElement('span');
-      caret.className = 'caret';
-
-      if (term) {
-        if (reduced) {
-          term.textContent = lines.join('\n');
-          term.append(caret);
-        } else {
-          term.append(caret);
-          let lineIndex = 0;
-          let charIndex = 0;
-
-          const type = () => {
-            if (lineIndex >= lines.length) {
-              // 播完停一会儿再从头开始，避免持续不断的高频变化
-              setTimeout(() => {
-                term.textContent = '';
-                term.append(caret);
-                lineIndex = 0;
-                charIndex = 0;
-                type();
-              }, 6000);
-              return;
-            }
-
-            const line = lines[lineIndex] ?? '';
-            const done = lines.slice(0, lineIndex).join('\n');
-            caret.remove();
-            term.textContent = `${lineIndex > 0 ? `${done}\n` : ''}${line.slice(0, charIndex)}`;
-            term.append(caret);
-
-            if (charIndex < line.length) {
-              charIndex += 1;
-              setTimeout(type, 24);
-            } else {
-              lineIndex += 1;
-              charIndex = 0;
-              setTimeout(type, 420);
-            }
-          };
-
-          type();
         }
       }
 
-      /* ---------- 时钟与信号灯 ---------- */
-      const clock = document.getElementById('clock');
-      const signal = document.getElementById('signal');
+      const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+      const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+      const smoothstep = (a: number, b: number, x: number) => {
+        if (a === b) return x < a ? 0 : 1;
+        const t = clamp((x - a) / (b - a), 0, 1);
+        return t * t * (3 - 2 * t);
+      };
 
+      /* 确定性哈希：同一个格子每帧得到同一个值。
+         画面里所有的「随机」都在初始化时定好，绝不用逐帧随机数 —— 那是闪烁，是噪音。 */
+      const hash2 = (x: number, y: number) => {
+        let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263);
+        h = Math.imul(h ^ (h >>> 13), 1274126177);
+        return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+      };
+
+      const valueNoise = (x: number, y: number) => {
+        const xi = Math.floor(x);
+        const yi = Math.floor(y);
+        const xf = x - xi;
+        const yf = y - yi;
+        const u = xf * xf * (3 - 2 * xf);
+        const v = yf * yf * (3 - 2 * yf);
+        const a = hash2(xi, yi);
+        const b = hash2(xi + 1, yi);
+        const c = hash2(xi, yi + 1);
+        const d = hash2(xi + 1, yi + 1);
+        return lerp(lerp(a, b, u), lerp(c, d, u), v);
+      };
+
+      /** 三层叠加的分形噪声：星云的形状 */
+      const fbm = (x: number, y: number) =>
+        valueNoise(x, y) * 0.62 +
+        valueNoise(x * 2.03 + 11.3, y * 2.07 + 7.1) * 0.28 +
+        valueNoise(x * 4.1 + 3.7, y * 4.2 + 1.9) * 0.1;
+
+      interface Star {
+        x: number;
+        y: number;
+        z: number;
+        hue: number;
+        sat: number;
+        phase: number;
+        tw: number;
+      }
+
+      const canvas = document.getElementById('field') as HTMLCanvasElement | null;
+      const ctx = canvas?.getContext('2d', { alpha: true }) ?? null;
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      let W = 0;
+      let H = 0;
+      let cols = 0;
+      let rows = 0;
+      let cellW = 8;
+      let cellH = 16;
+      let horizon = 0;
+      let aspect = 1.7;
+      let intensity = new Float32Array(0);
+      let hueBuf = new Float32Array(0);
+      let satBuf = new Float32Array(0);
+      let stars: Star[] = [];
+      let moonX = 0;
+      let moonY = 0;
+      let moonR = 4;
+      let mode: Mode = 'ascii';
+
+      /* 首屏之后自适应降级用：掉帧就减少列数（字符变大、数量变少） */
+      let quality = 1;
+      let costAvg = 8;
+      let frameCount = 0;
+
+      const plot = (x: number, y: number, b: number, h: number, s: number) => {
+        if (!(x >= 0 && y >= 0 && x < cols && y < rows)) return;
+        const idx = y * cols + x;
+        if (b <= intensity[idx]) return;
+        intensity[idx] = b;
+        hueBuf[idx] = h;
+        satBuf[idx] = s;
+      };
+
+      /** 星星只在初始化时撒一次，之后位置不动 —— 会动的只有它们的呼吸。 */
+      const buildStars = () => {
+        const count = Math.round(Math.min(300, cols * 1.6));
+        stars = [];
+        for (let i = 0; i < count; i += 1) {
+          // 大多数星星都很暗很远，亮的只有少数几颗 —— 密度一平均就变成噪点
+          const z = Math.pow(Math.random(), 1.5);
+          const warm = Math.random() < 0.22;
+          stars.push({
+            x: Math.random() * cols,
+            y: Math.random() * Math.max(2, horizon * 0.96),
+            z,
+            hue: warm ? 0.09 + Math.random() * 0.05 : 0.52 + Math.random() * 0.1,
+            sat: warm ? 0.45 : 0.08 + Math.random() * 0.34,
+            phase: Math.random() * TAU,
+            tw: 0.3 + Math.random() * 0.8,
+          });
+        }
+      };
+
+      /** 量出一格字符的真实尺寸，再把视口切成网格 */
+      const build = () => {
+        if (!canvas || !ctx) return;
+
+        W = Math.max(320, Math.round(window.innerWidth));
+        H = Math.max(400, Math.round(window.innerHeight));
+        const dpr = clamp(window.devicePixelRatio || 1, 1, 1.75);
+
+        const targetCols = Math.round(
+          clamp((W / 11.6) * quality, 46, 148),
+        );
+
+        // 用「十个 M 的宽度」反推字号，保证列宽正好是一个等宽字符的宽度。
+        let fontSize = Math.max(9, W / (targetCols * 0.6));
+        for (let i = 0; i < 3; i += 1) {
+          ctx.font = `${fontSize}px ${FONT}`;
+          const adv = ctx.measureText('MMMMMMMMMM').width / 10;
+          if (!adv || !Number.isFinite(adv)) break;
+          fontSize = Math.max(9, fontSize * (W / targetCols / adv));
+        }
+        fontSize = Math.max(9, Math.round(fontSize * 2) / 2);
+
+        ctx.font = `${fontSize}px ${FONT}`;
+        const adv = ctx.measureText('MMMMMMMMMM').width / 10;
+        cellW = adv > 0.5 ? adv : fontSize * 0.6;
+        cellH = Math.round(fontSize * 1.02);
+
+        cols = Math.max(24, Math.ceil(W / cellW));
+        rows = Math.max(20, Math.ceil(H / cellH));
+        aspect = cellH / cellW;
+
+        canvas.width = Math.round(W * dpr);
+        canvas.height = Math.round(H * dpr);
+        canvas.style.width = `${W}px`;
+        canvas.style.height = `${H}px`;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.font = `${fontSize}px ${FONT}`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+
+        intensity = new Float32Array(cols * rows);
+        hueBuf = new Float32Array(cols * rows);
+        satBuf = new Float32Array(cols * rows);
+
+        // 地平线钉在视口正中：上面是宇宙，下面是大海
+        horizon = Math.round(rows * 0.5);
+        moonX = cols * 0.735;
+        moonY = horizon * 0.34;
+        moonR = Math.max(3.2, Math.min(cols * 0.038, horizon * 0.26));
+
+        buildStars();
+      };
+
+      /** 把这一帧的「星海」写进 intensity / hue / sat 三个缓冲 */
+      const drawScene = (t: number) => {
+        intensity.fill(0);
+
+        /* ---------- 1) 星云：天空的底色，紫到品红，极缓慢地漂 ---------- */
+        for (let y = 0; y < horizon; y += 1) {
+          // 阈值拉高：噪声只有最高的那一部分才结成云，天空大部分留黑 —— 太空本来就该是空的
+          const nfade =
+            smoothstep(0, horizon * 0.1, y) * (1 - 0.7 * smoothstep(horizon * 0.78, horizon, y));
+          if (nfade <= 0.002) continue;
+          const ny = y * 0.042;
+          for (let x = 0; x < cols; x += 1) {
+            const nx = x * 0.023 + t * 0.004;
+            const a = smoothstep(0.6, 1, fbm(nx, ny));
+            if (a <= 0.02) continue;
+            const idx = y * cols + x;
+            const cloud = a * nfade * 0.4;
+            if (cloud <= intensity[idx]) continue;
+            intensity[idx] = cloud;
+            hueBuf[idx] = lerp(0.87, 0.73, smoothstep(0.35, 0.85, valueNoise(nx * 1.9 + 5.5, ny * 1.9)));
+            satBuf[idx] = 0.56;
+          }
+        }
+
+        /* ---------- 2) 星星：越近越亮的点，加一点点很慢的呼吸 ---------- */
+        for (let i = 0; i < stars.length; i += 1) {
+          const s = stars[i];
+          const twinkle = 0.72 + 0.28 * Math.sin(t * s.tw + s.phase);
+          const fade = 1 - 0.82 * smoothstep(horizon * 0.72, horizon, s.y);
+          const b = (0.06 + 0.92 * s.z) * twinkle * fade;
+          if (b <= 0.05) continue;
+          const xi = Math.round(s.x);
+          const yi = Math.round(s.y);
+          plot(xi, yi, b, s.hue, s.sat);
+          if (s.z > 0.68) {
+            const halo = b * 0.3;
+            plot(xi + 1, yi, halo, s.hue, s.sat);
+            plot(xi - 1, yi, halo, s.hue, s.sat);
+            plot(xi, yi + 1, halo * 0.9, s.hue, s.sat);
+            plot(xi, yi - 1, halo * 0.9, s.hue, s.sat);
+          }
+          if (s.z > 0.9) {
+            const flare = b * 0.2;
+            plot(xi + 2, yi, flare, s.hue, s.sat);
+            plot(xi - 2, yi, flare, s.hue, s.sat);
+            plot(xi, yi + 2, flare, s.hue, s.sat);
+            plot(xi, yi - 2, flare, s.hue, s.sat);
+          }
+        }
+
+        /* ---------- 3) 月亮：画面唯一的实体，也是海面那条光路的源头 ---------- */
+        const y0 = Math.max(0, Math.floor(moonY - moonR * aspect - 2));
+        const y1 = Math.min(rows - 1, Math.ceil(moonY + moonR * aspect + 2));
+        const x0 = Math.max(0, Math.floor(moonX - moonR - 2));
+        const x1 = Math.min(cols - 1, Math.ceil(moonX + moonR + 2));
+        for (let y = y0; y <= y1; y += 1) {
+          for (let x = x0; x <= x1; x += 1) {
+            const d = Math.hypot(x - moonX, (y - moonY) * aspect) / moonR;
+            if (d <= 1) {
+              // 中心亮、边缘收一点 = 球的体积感；叠一层低频噪声做出月海的斑驳。
+              // 亮度刻意压在 1 以下，让圆盘里有 # % @ 的层次，而不是糊成一块白。
+              const sphere = 0.86 + 0.26 * (1 - d * d);
+              const mare = 0.84 + 0.3 * valueNoise(x * 0.42 + 11.7, y * 0.42 + 4.3);
+              const edge = smoothstep(1, 0.86, d);
+              plot(x, y, 1.04 * sphere * mare * edge, 0.12, 0.26);
+            } else if (d < 1.5) {
+              const g = Math.pow(1 - (d - 1) / 0.5, 2.2) * 0.2;
+              if (g > 0.02) plot(x, y, g, 0.125, 0.4);
+            }
+          }
+        }
+
+        /* ---------- 4) 地平线：天与海的分界，也是纵深的最远处 ---------- */
+        for (let y = Math.max(0, horizon - 5); y <= Math.min(rows - 1, horizon + 4); y += 1) {
+          const g = Math.exp(-Math.pow((y - horizon - 0.2) / 0.95, 2));
+          if (g < 0.01) continue;
+          const above = clamp((horizon - y) / 5, 0, 1);
+          const glow = g * lerp(0.66, 0.36, above);
+          const h = lerp(0.505, 0.77, above * 0.85);
+          const s = lerp(0.42, 0.56, above);
+          for (let x = 0; x < cols; x += 1) {
+            // 沿线明暗不均，才像一条被水汽切碎的光，而不是拿尺子画的一根亮线
+            const mod =
+              valueNoise(x * 0.14 + 3.1, y * 0.9) * 0.65 + valueNoise(x * 0.05 + 31.7, y * 0.4) * 0.35;
+            plot(x, y, glow * (0.35 + 0.85 * mod), h, s);
+          }
+        }
+
+        /* ---------- 5) 海面：透视压缩的浪 + 月光碎成的一条路 ---------- */
+        const seaRows = rows - horizon;
+        /* 浪线沿「距离」方向排布，而不是沿屏幕方向。
+           近处的浪一波要占十几行，远处的浪一行就好几波 —— 这种疏密差就是纵深感本身。
+           频率随 v 线性收窄（而不是用 1/v），远处的波纹才不会密到糊成一片噪点。
+           相位只跟 y 走，x 上只留一点很轻的扰动，浪线才是连贯的横线而不是一堆散点。 */
+        let wavePhi = 0;
+        for (let y = horizon; y < rows; y += 1) {
+          const v = (y - horizon + 1) / seaRows; // 0 = 最远（地平线），1 = 最近（画面底部）
+          const near = Math.pow(v, 1.6);
+          wavePhi += 0.42 + 1.55 * Math.pow(1 - v, 1.6); // 每行推进的相位：远处快、近处慢
+
+          const drift = t * (0.5 + 1.05 * near);
+          const vseed = valueNoise(y * 0.41, 7.7) * TAU;
+          const haze = Math.exp(-v * 4.2); // 远处被地平线的光雾化
+          // 浪与浪之间的水面压得很暗：对比度越高，越像一片有深度的水
+          const band =
+            (0.02 + 0.26 * haze) * (0.75 + 0.25 * Math.sin(v * 9 - t * 0.45)) * (1 - 0.5 * near);
+          const rowHue = 0.5 + 0.105 * near; // 近处的蓝更深
+          const rowSat = 0.34 + 0.3 * near; // 近处更饱和，远处更灰
+          const spread = 4 + 28 * near; // 月光路越近越宽
+          // 浪尖：近处又亮又宽；远处淡到只剩雾，免得高频波纹在远处糊成噪点
+          const crestGain = (0.25 + 0.78 * near) * smoothstep(0, 0.28, v);
+
+          for (let x = 0; x < cols; x += 1) {
+            // 浪线自身的起伏（幅度压在 0.9 弧度以内，保证每一行都还能见到浪尖）
+            const swell =
+              0.55 * Math.sin(x * 0.075 + t * 0.42 + vseed) +
+              0.35 * Math.sin(x * 0.031 - t * 0.26 + vseed * 1.7);
+            // 相位 = 横向的轻微倾斜 + 沿距离推进的波 + 起伏
+            const ang = x * 0.055 + wavePhi - drift + swell;
+            // 起浪的门槛沿横向缓慢变化：浪线因此断断续续、成组出现，而不是一根根等宽横条
+            const thr = 0.52 + 0.24 * Math.sin(x * 0.045 + t * 0.3 + vseed * 1.3);
+            const crest = Math.pow(smoothstep(thr, 0.99, Math.sin(ang)), 1.3);
+            // 细碎的波纹，只负责给浪尖加一点颗粒
+            const chop = 0.5 + 0.5 * Math.sin(x * 0.55 + wavePhi * 2.4 - t * 1.6 + vseed);
+            // 一片浪的大小有别：成组的浪头才不像拉出来的条纹
+            const group = 0.5 + 0.5 * valueNoise(x * 0.045 + 17.3, vseed * 2.1);
+
+            const dx = (x - moonX) / spread;
+            const shimmer = 0.5 + 0.5 * Math.sin(t * 1.7 + y * 0.55 + x * 0.11);
+            const glitter = crest * Math.exp(-dx * dx * 3.6) * (0.18 + 0.72 * near) * shimmer;
+
+            // 远处的光雾也要有横向的疏密，否则地平线下面会是一条平滑的色带
+            const farPatch = 0.55 + 0.9 * valueNoise(x * 0.06 + 5.1, v * 26 + 11.3);
+            const value =
+              band * farPatch + crest * crestGain * (0.3 + 0.4 * chop + 0.5 * group) + glitter;
+            if (value <= 0.012) continue;
+
+            let h = rowHue;
+            let s = rowSat;
+            if (glitter > 0.03) {
+              const g = clamp(glitter * 2.6, 0, 1);
+              h = lerp(rowHue, 0.125, g); // 碎在浪尖上的月光是暖的
+              s = lerp(rowSat, 0.36, g);
+            }
+            if (crest > 0.72) {
+              s = lerp(s, 0.18, ((crest - 0.72) / 0.28) * 0.8); // 浪沫偏白
+            }
+
+            const idx = y * cols + x;
+            if (value <= intensity[idx]) continue;
+            intensity[idx] = value;
+            hueBuf[idx] = h;
+            satBuf[idx] = s;
+          }
+        }
+      };
+
+      const hueIdx = (h: number) => {
+        const v = h - Math.floor(h);
+        const i = Math.floor(v * HUE_STEPS) % HUE_STEPS;
+        return i < 0 ? i + HUE_STEPS : i;
+      };
+
+      const render = (t: number) => {
+        if (!ctx) return;
+        drawScene(t);
+
+        ctx.clearRect(0, 0, W, H);
+
+        const ramp = RAMPS[mode];
+        const lastChar = ramp.length - 1;
+        const binary = mode === 'binary';
+
+        for (let y = 0; y < rows; y += 1) {
+          const py = y * cellH;
+          const rowBase = y * cols;
+          for (let x = 0; x < cols; x += 1) {
+            const idx = rowBase + x;
+            let b = intensity[idx];
+
+            let ch: string;
+            let lit: number;
+            let hh: number;
+            let ss: number;
+
+            if (binary) {
+              if (b <= 0) {
+                // 空无一物的地方也铺一层很暗的 0：这就是「01 字符串」的那层底
+                ch = '0';
+                // 海面以下压得更暗：01 模式下也要能读出纵深
+                lit = y < horizon ? 0.15 : 0.085;
+                hh = 0.6;
+                ss = 0.42;
+              } else {
+                if (b > 1) b = 1;
+                // 有序抖动：亮度高于阈值就写 1，否则写 0 —— 一片区域里 1 越密就越亮
+                const one = b > BAYER[(y & 3) * 4 + (x & 3)];
+                ch = one ? '1' : '0';
+                lit = one ? 0.34 + 0.56 * b : 0.15 + 0.3 * b;
+                hh = hueBuf[idx];
+                ss = satBuf[idx];
+              }
+            } else {
+              // ASCII 模式下暗到看不见的格子干脆留空 —— 太空本来就该是黑的
+              if (b <= 0.045) continue;
+              if (b > 1) b = 1;
+              const ci = clamp(Math.round(Math.pow(b, 0.82) * lastChar), 0, lastChar);
+              ch = ramp[ci];
+              if (ch === ' ') continue;
+              lit = 0.1 + 0.74 * Math.pow(b, 0.8);
+              hh = hueBuf[idx];
+              ss = satBuf[idx];
+            }
+
+            const si = clamp(Math.round(ss * (SAT_STEPS - 1)), 0, SAT_STEPS - 1);
+            const li = clamp(Math.round(lit * (LIT_STEPS - 1)), 0, LIT_STEPS - 1);
+            ctx.fillStyle = palette[(hueIdx(hh) * SAT_STEPS + si) * LIT_STEPS + li];
+            ctx.fillText(ch, Math.round(x * cellW), py);
+          }
+        }
+      };
+
+      /* ============================================================
+         循环：锁 30fps，切后台就停；掉帧自动降密度。
+         ============================================================ */
+      const FRAME_MS = 1000 / 30;
+      let raf = 0;
+      let lastTime = 0;
+      let acc = 0;
+
+      const considerDegrade = () => {
+        if (costAvg <= 20 || quality <= 0.5) return;
+        quality = Math.max(0.5, quality - 0.18);
+        costAvg = 8;
+        build();
+      };
+
+      const frame = (now: number) => {
+        raf = requestAnimationFrame(frame);
+        if (!lastTime) lastTime = now;
+        const dt = now - lastTime;
+        lastTime = now;
+        acc += dt;
+        if (acc < FRAME_MS) return;
+        acc = Math.min(acc % FRAME_MS, FRAME_MS);
+
+        const t0 = performance.now();
+        render(now / 1000);
+        const cost = performance.now() - t0;
+        costAvg = costAvg * 0.9 + cost * 0.1;
+
+        frameCount += 1;
+        if (frameCount % 90 === 0) considerDegrade();
+      };
+
+      const start = () => {
+        if (reduced || raf) return;
+        lastTime = 0;
+        raf = requestAnimationFrame(frame);
+      };
+
+      const stop = () => {
+        if (!raf) return;
+        cancelAnimationFrame(raf);
+        raf = 0;
+      };
+
+      /* ============================================================
+         字集开关
+         ============================================================ */
+      const modeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.seg__btn'));
+      const modeLabel = document.getElementById('mode-label');
+
+      const setMode = (next: Mode) => {
+        mode = next;
+        for (const btn of modeButtons) {
+          btn.setAttribute('aria-pressed', String(btn.dataset.mode === next));
+        }
+        if (modeLabel) modeLabel.textContent = next === 'binary' ? '01' : 'ASCII';
+        try {
+          localStorage.setItem('wired-charset', next);
+        } catch {
+          /* 隐私模式下存不了也无所谓 */
+        }
+        if (reduced) render(8);
+      };
+
+      for (const btn of modeButtons) {
+        btn.addEventListener('click', () => {
+          setMode(btn.dataset.mode === 'binary' ? 'binary' : 'ascii');
+        });
+      }
+
+      try {
+        // 也可以用 ?charset=01 直接指定，方便分享时带上自己喜欢的字集（优先于本地记忆）
+        const wanted = new URLSearchParams(window.location.search).get('charset');
+        const saved = localStorage.getItem('wired-charset');
+        if (wanted === 'binary' || wanted === '01') setMode('binary');
+        else if (wanted === 'ascii') setMode('ascii');
+        else if (saved === 'binary' || saved === 'ascii') setMode(saved);
+      } catch {
+        /* 忽略 */
+      }
+
+      /* ============================================================
+         时钟与访客计数（与主站同一个接口、同一个会话标记）
+         ============================================================ */
+      const clock = document.getElementById('clock');
       const tickClock = () => {
         if (clock) clock.textContent = new Date().toLocaleTimeString('zh-CN', { hour12: false });
       };
       tickClock();
       setInterval(tickClock, 1000);
 
-      const drawSignal = () => {
-        if (!signal) return;
-        const bars = 1 + Math.floor(Math.random() * 4);
-        signal.textContent = '▮'.repeat(bars) + '▯'.repeat(5 - bars);
-      };
-      drawSignal();
-      setInterval(drawSignal, 3200);
-
-      /* ---------- 访客计数：复用主站同一个接口与同一个会话标记 ---------- */
       const digits = document.getElementById('visit-digits');
       if (digits) {
         const key = 'visit-counted';
@@ -853,10 +1051,9 @@ const description = 'za4ever.com 的手工分站：CRT 叠层、终端回显、W
           .then((data: { count?: number }) => {
             if (typeof data.count !== 'number') return;
             sessionStorage.setItem(key, '1');
-            const text = String(data.count).padStart(8, '0').slice(-8);
             digits.textContent = '';
             digits.dataset.state = 'ok';
-            for (const digit of text) {
+            for (const digit of String(data.count).padStart(8, '0').slice(-8)) {
               const cell = document.createElement('i');
               cell.textContent = digit;
               digits.append(cell);
@@ -868,72 +1065,128 @@ const description = 'za4ever.com 的手工分站：CRT 叠层、终端回显、W
           });
       }
 
-      /* ---------- 可拖动的小窗口 ---------- */
-      const win = document.getElementById('window');
-      const bar = document.getElementById('window-bar');
-      const closeBtn = document.getElementById('window-close');
+      /* ============================================================
+         潮声：一段现场合成的噪声，低通后由极慢的 LFO 推动音量。
+         默认关闭 —— 出声这件事必须由读者自己决定。
+         ============================================================ */
+      let audioCtx: AudioContext | undefined;
+      let ambience: { src: AudioBufferSourceNode; lfo: OscillatorNode; gain: GainNode } | null = null;
 
-      if (win && bar) {
-        // 进入本页 2.4 秒后弹出，先给主内容留出被看到的机会
-        setTimeout(() => {
-          win.hidden = false;
-        }, 2400);
+      const ensureCtx = (): AudioContext | undefined => {
+        const Ctor =
+          window.AudioContext ??
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!Ctor) return undefined;
+        audioCtx ??= new Ctor();
+        return audioCtx;
+      };
 
-        let drag: { dx: number; dy: number } | null = null;
+      const soundBtn = document.getElementById('toggle-sound');
 
-        bar.addEventListener('pointerdown', (event) => {
-          const rect = win.getBoundingClientRect();
-          drag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
-          win.style.right = 'auto';
-          win.style.bottom = 'auto';
-          win.style.left = `${rect.left}px`;
-          win.style.top = `${rect.top}px`;
-          bar.setPointerCapture(event.pointerId);
-        });
+      const syncSound = (on: boolean) => {
+        if (soundBtn) {
+          soundBtn.textContent = `潮声：${on ? '开' : '关'}`;
+          soundBtn.setAttribute('aria-pressed', String(on));
+        }
+      };
 
-        bar.addEventListener('pointermove', (event) => {
-          if (!drag) return;
-          win.style.left = `${event.clientX - drag.dx}px`;
-          win.style.top = `${event.clientY - drag.dy}px`;
-        });
+      const startAmbience = () => {
+        if (ambience) return;
+        const ctx = ensureCtx();
+        if (!ctx) return;
+        void ctx.resume();
 
-        const endDrag = () => {
-          drag = null;
-        };
-        bar.addEventListener('pointerup', endDrag);
-        bar.addEventListener('pointercancel', endDrag);
-      }
+        const seconds = 6;
+        const length = Math.floor(ctx.sampleRate * seconds);
+        const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        let low = 0;
+        let mid = 0;
+        for (let i = 0; i < length; i += 1) {
+          const white = Math.random() * 2 - 1;
+          low = 0.995 * low + 0.005 * white; // 低频涌浪
+          mid = 0.92 * mid + 0.08 * white; // 浪花的细碎
+          data[i] = low * 3.2 + mid * 0.22;
+        }
 
-      closeBtn?.addEventListener('click', () => {
-        if (win) win.hidden = true;
-      });
+        const src = ctx.createBufferSource();
+        src.buffer = buffer;
+        src.loop = true;
 
-      /* ---------- 音效开关 ---------- */
-      syncSoundButton();
+        const hp = ctx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 55;
+
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 700;
+        lp.Q.value = 0.4;
+
+        const gain = ctx.createGain();
+        gain.gain.value = 0.0001;
+
+        // 0.07 Hz 的 LFO 推着音量起伏 —— 一次「潮」大约 14 秒
+        const lfo = ctx.createOscillator();
+        lfo.type = 'sine';
+        lfo.frequency.value = 0.07;
+        const lfoDepth = ctx.createGain();
+        lfoDepth.gain.value = 0.026;
+        lfo.connect(lfoDepth).connect(gain.gain);
+
+        src.connect(hp).connect(lp).connect(gain).connect(ctx.destination);
+        src.start();
+        lfo.start();
+        gain.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 2.5);
+
+        ambience = { src, lfo, gain };
+      };
+
+      const stopAmbience = () => {
+        if (!ambience || !audioCtx) return;
+        const { src, lfo, gain } = ambience;
+        const ctx = audioCtx;
+        const now = ctx.currentTime;
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(gain.gain.value, now);
+        gain.gain.linearRampToValueAtTime(0.0001, now + 0.6);
+        try {
+          src.stop(now + 0.7);
+          lfo.stop(now + 0.7);
+        } catch {
+          /* 已经停了，忽略 */
+        }
+        ambience = null;
+      };
 
       soundBtn?.addEventListener('click', () => {
-        soundOn = !soundOn;
-        if (soundOn) void ensureCtx()?.resume();
-        else setHum(false);
-        syncSoundButton();
-        if (humBtn && !soundOn) {
-          humBtn.textContent = '底噪：关';
-          humBtn.setAttribute('aria-pressed', 'false');
-        }
-        beep(900, 0.06);
+        const on = soundBtn.getAttribute('aria-pressed') !== 'true';
+        if (on) startAmbience();
+        else stopAmbience();
+        syncSound(on);
       });
 
-      humBtn?.addEventListener('click', () => {
-        const next = humBtn.getAttribute('aria-pressed') !== 'true';
-        if (next && !soundOn) {
-          soundOn = true;
-          void ensureCtx()?.resume();
-          syncSoundButton();
-        }
-        setHum(next);
-        humBtn.textContent = `底噪：${next ? '开' : '关'}`;
-        humBtn.setAttribute('aria-pressed', String(next));
+      /* ============================================================
+         启动
+         ============================================================ */
+      let resizeTimer = 0;
+      window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = window.setTimeout(() => {
+          build();
+          if (reduced) render(8);
+        }, 220);
       });
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) stop();
+        else start();
+      });
+
+      if (canvas && ctx) {
+        build();
+        if (reduced) render(8);
+        else start();
+      }
     </script>
   </body>
 </html>

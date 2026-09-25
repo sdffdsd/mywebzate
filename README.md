@@ -50,6 +50,7 @@ personal-site/
 └─ docs/
    ├─ 上线手册-路线A.md     逐步上线手册（当前采用：纯 Cloudflare）
    ├─ 技术路线.md           可达性方案、DNS 拓扑、验收、成本与风险
+   ├─ wired-星海.md         /wired/ 那张实时字符画的设计取舍与实现
    └─ 拨测记录.md           多线路拨测基线记录模板
 ```
 
@@ -111,4 +112,3 @@ personal-site/
 | `wrangler` 报 `EPERM ... ~/Library/Preferences/.wrangler` | 同一类权限问题：修正该目录属主，或给 wrangler 指定可写的 `HOME` |
 | 本地预览看不到访客数字 | `npm run preview` 只是静态服务，不含函数；改用 `npm run serve:node`（8080）或 `npx wrangler pages dev ./dist --kv VISITS` |
 | 构建报 "chunk larger than 500 kB" | 是 three.js 的分包，属预期；它是懒加载的，不影响首屏 |
-
