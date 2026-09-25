@@ -21,7 +21,10 @@
  *   - 无 JS 时不显示门，读者不会被锁在门外（见 BaseLayout 里的 is-gated 标记）。
  *   - prefers-reduced-motion 下不做 glitch 抖动。
  *   - ENTER 是一个真正的链接（<a href="/wired/">），中键 / 新标签页打开照常可用；
- *     JS 只负责补一段进入音并顺手记下「本会话已进过站」。
+ *     普通左键也**完全交给浏览器自己跳**，不做 preventDefault、不插延时 ——
+ *     按下去就是立刻换页，门会一直盖着直到新文档接手，中间不会闪出主站首页。
+ *   - 进入音不能在这一页播：文档马上就被换掉，只会剩下半声。所以这里只在按下
+ *     ENTER 的那一刻写一个一次性标记，由落地页 /wired/ 读它出声。
  */
 ---
 
@@ -217,39 +220,10 @@
 </style>
 
 <script>
-  /** ENTER 指向的分站 */
-  const WIRED_URL = '/wired/';
-
   const gate = document.getElementById('entry-gate');
   const enterLink = document.getElementById('entry-gate-enter');
   const skipBtn = document.getElementById('entry-gate-skip');
   const main = document.getElementById('main');
-
-  /** 进入音：三声上行方波，全部由 Web Audio 合成，不需要音频文件。
-      整体压在 0.3 秒内，这样「响完再跳转」不需要等太久。 */
-  const playEnter = () => {
-    const Ctor =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctor) return;
-
-    const ctx = new Ctor();
-    const now = ctx.currentTime;
-
-    [523.25, 659.25, 987.77].forEach((freq, index) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      const start = now + index * 0.06;
-      osc.type = 'square';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.05, start + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(start);
-      osc.stop(start + 0.2);
-    });
-  };
 
   /** 门后面的内容在 gated 期间对键盘与读屏都不可达 */
   const setBackgroundInert = (inert: boolean) => {
@@ -279,18 +253,20 @@
     }
   };
 
-  /** ENTER：先响一声，再把浏览器交给 /wired/ */
-  const goWired = () => {
-    if (!gate || gate.classList.contains('is-gone')) return;
-
-    playEnter();
-    gate.classList.add('is-gone');
-    gate.setAttribute('aria-hidden', 'true');
-    document.documentElement.classList.remove('is-gated');
-    setBackgroundInert(false);
-
-    // 留出 340ms 让进入音响起；无 JS 时这个链接就是普通链接，直接跳转
-    setTimeout(() => window.location.assign(WIRED_URL), 340);
+  /** ENTER 的进入音旗子：按下去那一刻先记一笔，落页由 /wired/ 消费。
+      只记不播、不拦跳转 —— 这一页的任务就是立刻把浏览器交出去。 */
+  const armEnterSound = (event: Event) => {
+    if (
+      event instanceof MouseEvent &&
+      (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+    ) {
+      return;
+    }
+    try {
+      sessionStorage.setItem('wired-enter-sound', '1');
+    } catch {
+      /* 隐私模式下写不进去也无所谓，最多是没那一声 */
+    }
   };
 
   if (gate && document.documentElement.classList.contains('is-gated')) {
@@ -302,21 +278,11 @@
 
     setBackgroundInert(true);
 
-    // ENTER 本身是 <a href="/wired/">：新标签页 / 中键 / 无 JS 都能用。
-    // 只有「不带修饰键的左键单击」才拦下来补一声进入音。
-    enterLink?.addEventListener('click', (event) => {
-      if (
-        event.defaultPrevented ||
-        event.button !== 0 ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.shiftKey ||
-        event.altKey
-      ) {
-        return;
-      }
-      event.preventDefault();
-      goWired();
+    // ENTER 本身是 <a href="/wired/">：跳转完全交给浏览器，点下去立刻换页，
+    // 这里只在按下的那一刻记下「这次是按 ENTER 进来的」，好让落地页补一声进入音。
+    enterLink?.addEventListener('pointerdown', armEnterSound);
+    enterLink?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') armEnterSound(event);
     });
 
     skipBtn?.addEventListener('click', dismissGate);

@@ -1212,6 +1212,54 @@ const description =
         return audioCtx;
       };
 
+      /* ------------------------------------------------------------
+         进入音：从入口门按 ENTER 过来的那一次，落页时补一声。
+         声音没法跨文档 —— 在门口响、页面立刻被换掉，只会剩下半声，
+         所以门那边只在按下的瞬间写一个一次性标记（wired-enter-sound），
+         真正的播放挪到这里。这次跳转本身就是用户手势，浏览器会放行；
+         万一被自动播放策略拦下（比如直接把网址贴进地址栏后又刷新），
+         也只是没这一声，绝不挡页面。
+         ------------------------------------------------------------ */
+      const playEnterChime = (ctx: AudioContext) => {
+        const now = ctx.currentTime + 0.02;
+        [523.25, 659.25, 987.77].forEach((freq, index) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const start = now + index * 0.06;
+          osc.type = 'square';
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.0001, start);
+          gain.gain.exponentialRampToValueAtTime(0.05, start + 0.01);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(start);
+          osc.stop(start + 0.2);
+        });
+      };
+
+      const consumeEnterSound = () => {
+        let armed = false;
+        try {
+          armed = sessionStorage.getItem('wired-enter-sound') === '1';
+          if (armed) sessionStorage.removeItem('wired-enter-sound');
+        } catch {
+          /* 隐私模式：读不到就没有这一声 */
+        }
+        if (!armed) return;
+
+        const ctx = ensureCtx();
+        if (!ctx) return;
+        if (ctx.state === 'running') {
+          playEnterChime(ctx);
+          return;
+        }
+        // resume() 被自动播放策略挡住时返回的是一个永远不落地的 promise，
+        // 所以这里只挂 then，不 await、不排队，挡不住任何东西。
+        void ctx.resume().then(() => {
+          if (ctx.state === 'running') playEnterChime(ctx);
+        });
+      };
+
       const soundBtn = document.getElementById('toggle-sound');
 
       const syncSound = (on: boolean) => {
@@ -1312,6 +1360,8 @@ const description =
         if (document.hidden) stop();
         else start();
       });
+
+      consumeEnterSound();
 
       if (canvas && ctx) {
         build();
