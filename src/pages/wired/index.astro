@@ -21,6 +21,9 @@
  *   没有 glitch、没有扫描线、没有 CRT 闪烁、没有跑马灯、没有随机跳动的信号灯、
  *   没有拖拽弹窗、没有恼人的悬停音效。剩下的只有缓慢的星与潮。
  *
+ * 页面上也不放说明性文字：屏幕上的字只有站名、标题、字集开关、现场数据与导航，
+ * 不再有解说画面的话 —— 画面自己说话。
+ *
  * 工程底线（与主站一致）：
  *   - 零外部资源；无 JS 时不留白屏（背景退化成 CSS 渐变，正文照常可读）。
  *   - prefers-reduced-motion 下只画一帧静态画面，不做任何循环动画。
@@ -204,13 +207,6 @@ const description =
         text-shadow: 0 0 28px rgba(120, 220, 255, 0.42), 0 2px 26px rgba(0, 0, 0, 0.9);
       }
 
-      .hero__lede {
-        margin: 0;
-        color: var(--dim);
-        font-size: 0.95rem;
-        text-shadow: 0 1px 16px rgba(0, 0, 0, 0.95);
-      }
-
       /* 字集开关：对应参考站里的 charset 选择 */
       .seg {
         display: inline-flex;
@@ -250,18 +246,6 @@ const description =
         border-color: var(--cyan);
       }
 
-      .hero__hint {
-        margin: 0;
-        padding: 0.3rem 0.9rem;
-        border-radius: 999px;
-        /* 这行字正落在地平线的光带上，给一层极淡的底，省得被浪尖吃掉 */
-        background: rgba(4, 7, 14, 0.58);
-        font-size: 0.74rem;
-        letter-spacing: 0.1em;
-        color: var(--faint);
-        text-shadow: 0 1px 12px rgba(0, 0, 0, 0.9);
-      }
-
       /* ============================================================
          正文面板：半透明深色底 + 毛玻璃，保证字符画上也能读
          ============================================================ */
@@ -290,27 +274,6 @@ const description =
         letter-spacing: 0.3em;
         text-transform: uppercase;
         color: var(--cyan);
-      }
-
-      .panel p {
-        margin: 0 0 0.9rem;
-        color: var(--dim);
-        max-width: 44rem;
-      }
-
-      .panel p:last-child {
-        margin-bottom: 0;
-      }
-
-      .panel strong {
-        color: var(--ink);
-        font-weight: 600;
-      }
-
-      .ramp {
-        color: var(--cyan);
-        letter-spacing: 0.12em;
-        word-break: break-all;
       }
 
       /* 现场数据 */
@@ -462,44 +425,16 @@ const description =
         <div class="hero__inner">
           <p class="eyebrow">za4ever.com / wired</p>
           <h1 class="hero__title">WIRED NODE</h1>
-          <p class="hero__lede">
-            上半是宇宙，下半是大海。<br />
-            画面里的每一个点，都是一个字符。
-          </p>
 
           <div class="seg" role="group" aria-label="字符集">
             <span class="seg__label">字集</span>
             <button class="seg__btn" type="button" data-mode="ascii" aria-pressed="true">ASCII</button>
             <button class="seg__btn" type="button" data-mode="binary" aria-pressed="false">01</button>
           </div>
-
-          <p class="hero__hint">星、月、流星、潮都是现场算出来的 · 往下滚还有字 ↓</p>
         </div>
       </header>
 
       <main id="main">
-        <section class="panel">
-          <h2>这一面</h2>
-          <p>
-            上一版这里是台 CRT 终端：扫描线、闪烁、跑马灯、随机跳的信号灯。那些都是噪音，这次删干净了。
-          </p>
-          <p>
-            现在的背景是一张<strong>实时画出来的字符画</strong>，从上到下分三段：天空（星云、星、一轮月）、
-            中间的<strong>流星带</strong>、以及大海（浪，和月光碎在水面上的那条路）。
-            整片天空连同星和月一起向左缓慢漂移，月亮在水上的那条光路跟着它挪；
-            越靠近地平线越远、越淡、越雾，越往画面底部越近、越大、越暗 —— 纵深就是这么来的。
-          </p>
-          <p>
-            流星带里，一个个字符从带顶落向地平线：进场时慢慢亮起，中段最亮，再一路暗下去熄灭，
-            尾巴在后面一级一级变淡。字符网格这一版也加密了将近一倍，所以画面比上一版细得多。
-          </p>
-          <p>
-            字集可以随时换：<strong>ASCII</strong> 用 <code class="ramp">.,:;-~=+*#%@</code> 从暗排到亮；
-            <strong>01</strong> 只用 0 和 1，靠疏密表达明暗。整页没有一个图片、字体或音频文件，
-            想听潮声就打开页脚的开关。
-          </p>
-        </section>
-
         <section class="panel">
           <h2>现场</h2>
           <dl class="facts">
@@ -537,7 +472,7 @@ const description =
       </main>
 
       <footer class="foot">
-        <span>© {year} ZAKURA · 字符实时绘制，无图片无字体无音频文件</span>
+        <span>© {year} ZAKURA</span>
         <span class="foot__ctl">
           <button id="toggle-sound" type="button" aria-pressed="false">潮声：关</button>
           <a href="/">← 回主站</a>

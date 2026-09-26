@@ -6,6 +6,13 @@
  *   ▶ ENTER        → 进 /wired/（星海分站）。门就是分站的门。
  *   ▷ 静音进入主站 → 留在 za4ever.com 首页，只是把门收起来（不开音效）。
  *
+ * 画面主体是「缸中之脑」：一个用字符网格现算出来的大脑，泡在玻璃罩里，
+ * 四周甩出线缆，信号一段段沿着线缆往外跑 —— 一张在动的神经网。
+ * 和 /wired/ 同一套手艺，全部现算，没有一个图片 / 字体 / 音频文件。
+ *
+ * 大脑的位置不是写死的：它按 .entry-gate__stage 的实测位置摆放，
+ * 所以窗口多大、标题多长，画面和 HTML 都永远对得上。
+ *
  * 为什么是覆盖层而不是把首页搬到 /home/：
  *   1. 网址不变：za4ever.com 还是首页本身，canonical / 站内链接 / 外部反链全都不受影响。
  *   2. SEO 不变：正文照旧在 HTML 里，爬虫不执行 JS 就直接看到完整内容。
@@ -16,30 +23,32 @@
  *    门显示时会给 header / main / footer 加 inert 来屏蔽背后内容，
  *    若门自己长在 main 里，它也会被 inert 掉 —— 按钮全部点不动。
  *
- * 四条工程底线继续遵守：
- *   - 零外部字体 / 图片 / 音频 / 第三方脚本（音效由 Web Audio 合成）。
+ * 六条工程底线继续遵守：
+ *   - 零外部字体 / 图片 / 音频 / 第三方脚本。
  *   - 无 JS 时不显示门，读者不会被锁在门外（见 BaseLayout 里的 is-gated 标记）。
- *   - prefers-reduced-motion 下不做 glitch 抖动。
+ *   - prefers-reduced-motion 下只画一帧静态画面，不做任何循环动画。
+ *   - 切到后台、门被收起，循环立刻停。
  *   - ENTER 是一个真正的链接（<a href="/wired/">），中键 / 新标签页打开照常可用；
- *     普通左键也**完全交给浏览器自己跳**，不做 preventDefault、不插延时 ——
+ *     普通左键也**完全交给浏览器自己跳**：不 preventDefault、不插延时 ——
  *     按下去就是立刻换页，门会一直盖着直到新文档接手，中间不会闪出主站首页。
  *   - 进入音不能在这一页播：文档马上就被换掉，只会剩下半声。所以这里只在按下
  *     ENTER 的那一刻写一个一次性标记，由落地页 /wired/ 读它出声。
+ *   - 门上没有任何说明性文字：只有域名、标题、一条 ENTER、一条静音入口。
  */
 ---
 
 <div class="entry-gate" id="entry-gate" role="dialog" aria-modal="true" aria-label="站点入口">
-  <div class="entry-gate__scan" aria-hidden="true"></div>
+  <canvas class="entry-gate__field" id="gate-field" aria-hidden="true"></canvas>
   <div class="entry-gate__vignette" aria-hidden="true"></div>
 
   <div class="entry-gate__inner">
     <p class="entry-gate__label">ZA4EVER.COM</p>
     <h1 class="entry-gate__title" data-text="WIRED NODE">WIRED NODE</h1>
-    <p class="entry-gate__sub">这是一个人的站点 · 无框架 · 无追踪 · 永久施工中</p>
+
+    <!-- 空的占位块：只用来告诉脚本「大脑应该长在哪儿」，本身不画任何东西 -->
+    <div class="entry-gate__stage" aria-hidden="true"></div>
 
     <a class="entry-gate__btn" id="entry-gate-enter" href="/wired/">▶ ENTER</a>
-
-    <p class="entry-gate__note">ENTER 进入星海分站 · 静音留在主站</p>
     <p class="entry-gate__hint">
       <button class="entry-gate__skip" id="entry-gate-skip" type="button">静音进入主站 →</button>
     </p>
@@ -63,14 +72,13 @@
     z-index: 200;
     display: grid;
     place-content: center;
-    /* 不透明底色：避免主站内容在门出现之前闪一帧 */
-    background-color: #06060a;
-    background-image:
-      repeating-linear-gradient(0deg, rgba(210, 115, 138, 0.055) 0 2px, transparent 2px 4px),
-      repeating-linear-gradient(90deg, rgba(89, 207, 255, 0.035) 0 2px, transparent 2px 4px);
+    /* 不透明底色：避免主站内容在门出现之前闪一帧。
+       只留一层极淡的中心光晕，其余全交给画布上的字符。 */
+    background-color: #05060a;
+    background-image: radial-gradient(ellipse 68% 58% at 50% 46%, #0b1119 0%, #05060a 72%);
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "PingFang SC",
       "Microsoft YaHei", monospace;
-    color: #c1b492;
+    color: #a9b6c4;
     text-align: center;
     padding: 1.5rem;
     opacity: 1;
@@ -82,44 +90,46 @@
     pointer-events: none;
   }
 
-  .entry-gate__scan,
+  /* 字符画本体：铺满整块门，压在内容下面，永远不接鼠标事件 */
+  .entry-gate__field {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
   .entry-gate__vignette {
     position: absolute;
     inset: 0;
     pointer-events: none;
-  }
-
-  .entry-gate__scan {
-    background: repeating-linear-gradient(
-      to bottom,
-      rgba(255, 255, 255, 0.045) 0 1px,
-      transparent 1px 3px
-    );
-    mix-blend-mode: overlay;
-  }
-
-  .entry-gate__vignette {
-    background: radial-gradient(ellipse at center, transparent 48%, rgba(0, 0, 0, 0.9) 100%);
+    /* 四周压暗：线缆铺到边上会散，压一下视线才留得住中间那颗脑子 */
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(3, 4, 7, 0.86) 100%);
   }
 
   .entry-gate__inner {
     position: relative;
-    display: grid;
-    gap: 0.9rem;
-    justify-items: center;
+    /* 定宽居中：大脑的尺寸按这一块的实测宽度算。
+       这里必须用视口单位写死 —— 用百分比的话，宽度会反过来由标题撑，
+       舞台就只剩下标题那么窄，脑子也跟着缩成一小团。 */
+    width: min(calc(100vw - 3rem), 46rem);
+    text-align: center;
   }
 
   .entry-gate__label {
-    margin: 0;
+    margin: 0 0 0.9rem;
     font-size: 0.72rem;
     letter-spacing: 0.32em;
     opacity: 0.6;
+    /* 线缆会从这一行穿过去，压一层阴影免得字被字符咬碎 */
+    text-shadow: 0 1px 10px #05060a, 0 0 5px #05060a;
   }
 
   .entry-gate__title {
     position: relative;
-    margin: 0;
-    font-size: clamp(1.6rem, 7vw, 2.9rem);
+    margin: 0 0 0.9rem;
+    font-size: clamp(1.5rem, 6vw, 2.5rem);
     font-weight: 700;
     letter-spacing: 0.1em;
     color: #59cfff;
@@ -147,25 +157,26 @@
 
   @keyframes gate-glitch {
     0%, 91%, 100% { transform: translate(0, 0); clip-path: inset(0 0 0 0); }
-    93% { transform: translate(-3px, 1px); clip-path: inset(14% 0 58% 0); }
-    96% { transform: translate(3px, -2px); clip-path: inset(52% 0 22% 0); }
+    93% { transform: translate(-2px, 1px); clip-path: inset(14% 0 58% 0); }
+    96% { transform: translate(2px, -2px); clip-path: inset(52% 0 22% 0); }
   }
 
-  .entry-gate__sub {
-    margin: 0;
-    font-size: 0.84rem;
-    opacity: 0.78;
+  /* 大脑的舞台：不给任何样式，只负责在布局里占出那块空间 */
+  .entry-gate__stage {
+    width: 100%;
+    height: clamp(200px, 38vh, 460px);
   }
 
   .entry-gate__btn {
     display: inline-block;
-    margin-top: 0.8rem;
+    margin-top: 0.4rem;
     padding: 0.95rem 2.2rem;
     font: inherit;
     font-size: 0.95rem;
     letter-spacing: 0.24em;
     color: #59cfff;
-    background: transparent;
+    /* 压一层深色：线缆会从按钮背后过，文字不能被字符咬碎 */
+    background: rgba(5, 8, 14, 0.62);
     border: 2px solid #59cfff;
     cursor: pointer;
     text-decoration: none;
@@ -175,32 +186,21 @@
 
   .entry-gate__btn:hover,
   .entry-gate__btn:focus-visible {
-    background: rgba(89, 207, 255, 0.14);
+    background: rgba(89, 207, 255, 0.16);
   }
 
-  .entry-gate__note,
   .entry-gate__hint {
     margin: 0;
     font-size: 0.76rem;
     opacity: 0.62;
   }
 
-  .entry-gate__hint {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    align-items: center;
-    justify-content: center;
-  }
-
-  /* 门里唯一的链接就是 ENTER 本身，配色交给 .entry-gate__btn，不再单独着色 */
-
   .entry-gate__skip {
-    padding: 0;
+    padding: 0.2rem 0.4rem;
     font: inherit;
     font-size: 0.76rem;
     color: inherit;
-    background: none;
+    background: rgba(5, 8, 14, 0.5);
     border: 0;
     border-bottom: 1px dashed currentColor;
     cursor: pointer;
@@ -220,11 +220,552 @@
 </style>
 
 <script>
+  const canvas = document.getElementById('gate-field') as HTMLCanvasElement | null;
+  const ctx = canvas?.getContext('2d', { alpha: true }) ?? null;
+  const stage = document.querySelector<HTMLElement>('.entry-gate__stage');
   const gate = document.getElementById('entry-gate');
   const enterLink = document.getElementById('entry-gate-enter');
   const skipBtn = document.getElementById('entry-gate-skip');
   const main = document.getElementById('main');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  const TAU = Math.PI * 2;
+  const FONT =
+    'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "PingFang SC", "Microsoft YaHei", monospace';
+
+  /* 门里只有 ASCII 一种字集：密度阶梯从暗到亮 */
+  const RAMP = ' .,:;-~=+*#%@';
+  /* 线缆按走向换字形 —— 一条斜线用一串 ~ 会糊，用 \ / | - 才像线 */
+  const CABLE_CHARS = ['-', '\\', '|', '/', '-', '\\', '|', '/'];
+
+  /* 颜色查表：把 (色相 × 饱和度 × 明度) 预先算成字符串，
+     每帧只做整数索引，循环里不拼字符串。 */
+  const HUE_STEPS = 24;
+  const SAT_STEPS = 3;
+  const LIT_STEPS = 18;
+  const palette: string[] = new Array(HUE_STEPS * SAT_STEPS * LIT_STEPS);
+  for (let h = 0; h < HUE_STEPS; h += 1) {
+    const hue = Math.round((h * 360) / HUE_STEPS);
+    for (let s = 0; s < SAT_STEPS; s += 1) {
+      const sat = Math.round((s / (SAT_STEPS - 1)) * 100);
+      for (let l = 0; l < LIT_STEPS; l += 1) {
+        const lit = Math.round(5 + (l / (LIT_STEPS - 1)) * 78);
+        palette[(h * SAT_STEPS + s) * LIT_STEPS + l] = `hsl(${hue}, ${sat}%, ${lit}%)`;
+      }
+    }
+  }
+
+  const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+  const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+  const smoothstep = (a: number, b: number, x: number) => {
+    if (a === b) return x < a ? 0 : 1;
+    const t = clamp((x - a) / (b - a), 0, 1);
+    return t * t * (3 - 2 * t);
+  };
+  const wrap = (v: number, m: number) => {
+    const r = v % m;
+    return r < 0 ? r + m : r;
+  };
+  const hueIdx = (h: number) => {
+    const v = h - Math.floor(h);
+    const i = Math.floor(v * HUE_STEPS) % HUE_STEPS;
+    return i < 0 ? i + HUE_STEPS : i;
+  };
+
+  /* 确定性哈希：脑沟、气泡、线缆的「随机」全在初始化时定好，
+     运行时只按时间推进，绝不用逐帧随机数（那是闪烁，是噪音）。 */
+  const hash2 = (x: number, y: number) => {
+    let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  };
+  const valueNoise = (x: number, y: number) => {
+    const xi = Math.floor(x);
+    const yi = Math.floor(y);
+    const xf = x - xi;
+    const yf = y - yi;
+    const u = xf * xf * (3 - 2 * xf);
+    const v = yf * yf * (3 - 2 * yf);
+    return lerp(
+      lerp(hash2(xi, yi), hash2(xi + 1, yi), u),
+      lerp(hash2(xi, yi + 1), hash2(xi + 1, yi + 1), u),
+      v,
+    );
+  };
+
+  /* 「缸」的几何：全部以 brain.rx / brain.ry 为单位（u 横向、v 纵向，v 向下为正）。
+     玻璃罩是个半椭圆（钟形罩），罩口切在 RIM_V，下面一条底座，再往下两只脚。 */
+  const DOME_RX = 1.36;
+  const DOME_RY = 1.3;
+  const RIM_V = 0.78;
+  const FLUID_V = -1.02;
+  const RIM_HALF = DOME_RX * Math.sqrt(Math.max(0, 1 - (RIM_V / DOME_RY) ** 2));
+
+  /* 色相：脑子是暖粉（呼应标题那层红），线缆与玻璃罩是青 —— 一冷一暖对着看 */
+  const HUE_BRAIN = 0.92;
+  const HUE_CABLE = 0.54;
+  const HUE_GLASS = 0.53;
+
+  interface Cable {
+    x0: number;
+    y0: number;
+    dx: number;
+    dy: number;
+    len: number;
+    phase: number;
+    amp: number;
+    freq: number;
+    speed: number;
+    hue: number;
+  }
+
+  interface Spark {
+    x: number;
+    y: number;
+    period: number;
+    phase: number;
+  }
+
+  interface Bubble {
+    u: number;
+    phase: number;
+    speed: number;
+  }
+
+  let W = 0;
+  let H = 0;
+  let cols = 0;
+  let rows = 0;
+  let cellW = 8;
+  let cellH = 16;
+  let intensity = new Float32Array(0);
+  let hueBuf = new Float32Array(0);
+  let satBuf = new Float32Array(0);
+  let glyphBuf = new Uint8Array(0);
+
+  const brain = { cx: 0, cy: 0, rx: 10, ry: 6 };
+  let cables: Cable[] = [];
+  let sparks: Spark[] = [];
+  let bubbles: Bubble[] = [];
+
+  let quality = 1;
+  let costAvg = 8;
+  let frameCount = 0;
+
+  const plot = (x: number, y: number, b: number, h: number, s: number, glyph = 0) => {
+    if (!(x >= 0 && y >= 0 && x < cols && y < rows)) return;
+    const idx = y * cols + x;
+    if (b <= intensity[idx]) return;
+    intensity[idx] = b;
+    hueBuf[idx] = h;
+    satBuf[idx] = s;
+    glyphBuf[idx] = glyph;
+  };
+
+  /** 从 (px,py) 沿 (dx,dy) 走到画面边缘还有多远 —— 线缆据此决定自己伸多长 */
+  const edgeRoom = (px: number, py: number, dx: number, dy: number) => {
+    let t = Infinity;
+    if (dx > 1e-4) t = Math.min(t, (W - px) / dx);
+    if (dx < -1e-4) t = Math.min(t, -px / dx);
+    if (dy > 1e-4) t = Math.min(t, (H - py) / dy);
+    if (dy < -1e-4) t = Math.min(t, -py / dy);
+    return Number.isFinite(t) ? t : 0;
+  };
+
+  /** 加一根线缆：(x0,y0) 是格子坐标，ang 是出发角。forks > 0 时还会长出分叉。 */
+  const addCable = (ang: number, x0: number, y0: number, forks: number) => {
+    const dx = Math.cos(ang);
+    const dy = Math.sin(ang);
+    const room = edgeRoom(x0 * cellW, y0 * cellH, dx, dy);
+    const len = room * (0.6 + Math.random() * 0.38);
+    cables.push({
+      x0,
+      y0,
+      dx,
+      dy,
+      len,
+      phase: Math.random() * TAU,
+      amp: 2.5 + Math.random() * 4.5,
+      freq: 0.012 + Math.random() * 0.022,
+      speed: 0.07 + Math.random() * 0.09,
+      hue: HUE_CABLE + Math.random() * 0.06,
+    });
+
+    for (let k = 0; k < forks; k += 1) {
+      // 分叉从父线「直线路径」上的某点出发：父线摆动不到一格，接缝看不出来
+      const at = len * (0.3 + Math.random() * 0.45);
+      const a2 = ang + (Math.random() < 0.5 ? -1 : 1) * (0.42 + Math.random() * 0.5);
+      addCable(a2, x0 + (dx * at) / cellW, y0 + (dy * at) / cellH, 0);
+    }
+  };
+
+  const buildCables = () => {
+    cables = [];
+    const n = Math.round(clamp(cols * 0.115, 10, 20));
+    for (let i = 0; i < n; i += 1) {
+      const ang = (i / n) * TAU + (Math.random() - 0.5) * 0.22;
+      addCable(
+        ang,
+        brain.cx + Math.cos(ang) * brain.rx * 0.86,
+        brain.cy + Math.sin(ang) * brain.ry * 0.86,
+        Math.random() < 0.75 ? 2 : 1,
+      );
+    }
+  };
+
+  const buildSparks = () => {
+    sparks = [];
+    for (let i = 0; i < 18; i += 1) {
+      const a = Math.random() * TAU;
+      const r = Math.sqrt(Math.random()) * 0.8;
+      sparks.push({
+        x: brain.cx + Math.cos(a) * brain.rx * r,
+        y: brain.cy + Math.sin(a) * brain.ry * r,
+        period: 2.2 + Math.random() * 4.6,
+        phase: Math.random(),
+      });
+    }
+  };
+
+  const buildBubbles = () => {
+    bubbles = [];
+    for (let i = 0; i < 16; i += 1) {
+      bubbles.push({
+        u: (Math.random() * 2 - 1) * 0.8,
+        phase: Math.random(),
+        speed: 0.05 + Math.random() * 0.09,
+      });
+    }
+  };
+
+  /** 量出一格字符的真实尺寸，把视口切成网格，再按舞台的位置摆好这颗脑子 */
+  const build = () => {
+    if (!canvas || !ctx) return;
+
+    W = Math.max(320, Math.round(window.innerWidth));
+    H = Math.max(400, Math.round(window.innerHeight));
+    const dpr = clamp(window.devicePixelRatio || 1, 1, 1.75);
+
+    const targetCols = Math.round(clamp((W / 8.4) * quality, 54, 190));
+    let fontSize = Math.max(9, W / (targetCols * 0.6));
+    for (let i = 0; i < 3; i += 1) {
+      ctx.font = `${fontSize}px ${FONT}`;
+      const adv = ctx.measureText('MMMMMMMMMM').width / 10;
+      if (!adv || !Number.isFinite(adv)) break;
+      fontSize = Math.max(9, fontSize * (W / targetCols / adv));
+    }
+    fontSize = Math.max(9, Math.round(fontSize * 2) / 2);
+
+    ctx.font = `${fontSize}px ${FONT}`;
+    const adv = ctx.measureText('MMMMMMMMMM').width / 10;
+    cellW = adv > 0.5 ? adv : fontSize * 0.6;
+    cellH = Math.round(fontSize * 1.02);
+
+    cols = Math.max(24, Math.ceil(W / cellW));
+    rows = Math.max(20, Math.ceil(H / cellH));
+
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    canvas.style.width = `${W}px`;
+    canvas.style.height = `${H}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = `${fontSize}px ${FONT}`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+
+    intensity = new Float32Array(cols * rows);
+    hueBuf = new Float32Array(cols * rows);
+    satBuf = new Float32Array(cols * rows);
+    glyphBuf = new Uint8Array(cols * rows);
+
+    /* 大脑的位置直接读 .entry-gate__stage 的实测矩形 ——
+       HTML 怎么排，画布就怎么画，两边永远不会错位。 */
+    const rect = stage?.getBoundingClientRect();
+    const cxPx = rect && rect.width > 0 ? rect.left + rect.width / 2 : W / 2;
+    const cyPx = rect && rect.height > 0 ? rect.top + rect.height / 2 : H * 0.46;
+    const halfW =
+      rect && rect.width > 0 ? Math.min(rect.width * 0.36, rect.height * 0.64) : W * 0.18;
+    const halfH = halfW * 0.74; // 脑子是横着的，宽高比大约 1 : 0.74
+
+    brain.cx = cxPx / cellW;
+    brain.cy = cyPx / cellH;
+    brain.rx = Math.max(7, halfW / cellW);
+    brain.ry = Math.max(4, halfH / cellH);
+
+    buildCables();
+    buildSparks();
+    buildBubbles();
+  };
+
+  /** 把这一帧的「缸中之脑」写进 intensity / hue / sat / glyph 四个缓冲 */
+  const drawScene = (t: number) => {
+    intensity.fill(0);
+    glyphBuf.fill(0);
+
+    /* ---------- 1) 线缆：从大脑表面甩出去，信号一段段往外跑 ---------- */
+    for (let ci = 0; ci < cables.length; ci += 1) {
+      const c = cables[ci];
+      const segs = Math.max(2, Math.ceil(c.len / (cellW * 0.5)));
+      let prevX = 0;
+      let prevY = 0;
+      for (let i = 0; i <= segs; i += 1) {
+        const s = (i / segs) * c.len;
+        const grow = s / c.len; // 0 = 贴着脑子，1 = 最外端
+        /* 摆动：越往外越松（grow），并且整体随时间慢慢摇 —— 线缆是活的 */
+        const sway =
+          Math.sin(s * c.freq + c.phase + t * 0.22) * c.amp * grow +
+          Math.sin(s * c.freq * 0.41 - c.phase * 1.7 + t * 0.13) * c.amp * 0.45 * grow;
+        const px = c.x0 * cellW + c.dx * s - c.dy * sway;
+        const py = c.y0 * cellH + c.dy * s + c.dx * sway;
+
+        let glyph = 0;
+        if (i > 0) {
+          const a = Math.atan2(py - prevY, px - prevX);
+          glyph = (((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8) + 1;
+        }
+        prevX = px;
+        prevY = py;
+
+        /* 亮度 = 越远越暗 + 一个往外跑的脉冲（一根线缆同时只有一个） */
+        const w = wrap(s / c.len - t * c.speed + c.phase, 1);
+        const pulse = Math.pow(Math.max(0, 1 - Math.abs(w - 0.5) * 5.2), 3);
+        const b = 0.085 + 0.2 * (1 - grow) + pulse * 0.82;
+        if (b <= 0.035) continue;
+        plot(
+          Math.round(px / cellW),
+          Math.round(py / cellH),
+          b,
+          c.hue + pulse * 0.03,
+          0.46 - 0.16 * grow,
+          glyph,
+        );
+      }
+    }
+
+    /* ---------- 2) 玻璃罩、底座、液体：把「缸」画出来 ---------- */
+    const jx0 = Math.max(0, Math.floor(brain.cx - brain.rx * (DOME_RX + 0.3)));
+    const jx1 = Math.min(cols - 1, Math.ceil(brain.cx + brain.rx * (DOME_RX + 0.3)));
+    const jy0 = Math.max(0, Math.floor(brain.cy - brain.ry * DOME_RY - 1));
+    const jy1 = Math.min(rows - 1, Math.ceil(brain.cy + brain.ry * (RIM_V + 0.44)));
+    for (let y = jy0; y <= jy1; y += 1) {
+      const v = (y - brain.cy) / brain.ry;
+      for (let x = jx0; x <= jx1; x += 1) {
+        const u = (x - brain.cx) / brain.rx;
+        const jd = Math.hypot(u / DOME_RX, v / DOME_RY);
+
+        if (v < RIM_V) {
+          // 罩壁：一圈很细的线，只画到罩口高度
+          const onGlass = Math.abs(jd - 1) < 0.055;
+          if (onGlass) {
+            // 左上那一段是反光，比别处亮一点 —— 有这一笔才像玻璃，而不是一个椭圆
+            const spec = u < -0.45 && v < -0.35 ? 0.42 : 0.24;
+            plot(x, y, spec, HUE_GLASS, 0.3);
+          }
+          if (jd < 0.99) {
+            // 缸里的液体：极暗的一层，越深越沉
+            const fluid =
+              0.055 + 0.07 * valueNoise(x * 0.16, y * 0.3 + 4.2) * smoothstep(FLUID_V, RIM_V, v);
+            plot(x, y, fluid, 0.55, 0.5);
+          }
+        }
+
+        // 罩口：一条横线
+        if (Math.abs(v - RIM_V) < 0.055 && Math.abs(u) < RIM_HALF + 0.06) {
+          plot(x, y, 0.26, HUE_GLASS, 0.26);
+        }
+        // 底座：比罩口宽一点的一条亮线
+        if (Math.abs(v - (RIM_V + 0.2)) < 0.055 && Math.abs(u) < DOME_RX * 0.95) {
+          plot(x, y, 0.34, HUE_GLASS, 0.22);
+        }
+        // 两只脚
+        if (v > RIM_V + 0.26 && v < RIM_V + 0.44 && Math.abs(Math.abs(u) - 0.62) < 0.07) {
+          plot(x, y, 0.22, HUE_GLASS, 0.24);
+        }
+      }
+    }
+
+    /* 液面：一条微微起伏的线，跟着呼吸轻轻上下 */
+    const surface = FLUID_V + 0.03 * Math.sin(t * 0.5);
+    const surfY = Math.round(brain.cy + surface * brain.ry);
+    for (let x = jx0; x <= jx1; x += 1) {
+      const u = (x - brain.cx) / brain.rx;
+      if (Math.abs(u) > 0.76) continue;
+      plot(x, surfY, 0.17 + 0.05 * Math.sin(u * 7 + t * 0.8), HUE_GLASS, 0.3);
+    }
+
+    /* 气泡：从底座附近升到液面，越靠近液面越淡，免得「啪」地消失 */
+    for (let i = 0; i < bubbles.length; i += 1) {
+      const bb = bubbles[i];
+      const p = wrap(t * bb.speed + bb.phase, 1);
+      const v = lerp(RIM_V - 0.06, FLUID_V + 0.06, p);
+      const x = Math.round(brain.cx + bb.u * brain.rx + Math.sin(v * 5 + bb.phase * 6) * 0.6);
+      const y = Math.round(brain.cy + v * brain.ry);
+      const fade = smoothstep(0, 0.12, p) * (1 - smoothstep(0.86, 1, p));
+      plot(x, y, 0.16 * fade, HUE_GLASS, 0.34);
+    }
+
+    /* ---------- 3) 大脑本体：两半球合成轮廓，表面是脑沟的褶皱 ---------- */
+    const bx0 = Math.max(0, Math.floor(brain.cx - brain.rx * 1.16));
+    const bx1 = Math.min(cols - 1, Math.ceil(brain.cx + brain.rx * 1.16));
+    const by0 = Math.max(0, Math.floor(brain.cy - brain.ry * 1.2));
+    const by1 = Math.min(rows - 1, Math.ceil(brain.cy + brain.ry * 1.3));
+    /* 呼吸：整颗脑子极缓慢地胀缩，幅度小到说不出哪里在动，只觉得它是活的 */
+    const breath = 1 + 0.012 * Math.sin(t * 0.5);
+    for (let y = by0; y <= by1; y += 1) {
+      const v0 = (y - brain.cy) / (brain.ry * breath);
+      for (let x = bx0; x <= bx1; x += 1) {
+        const u0 = (x - brain.cx) / (brain.rx * breath);
+        // 两个半球：以 u = ±0.36 为中心各一个椭圆。
+        // 两瓣的半径压得比间距小，顶上中间就会自己塌下去一道 —— 那正是纵裂的起点。
+        const du = Math.abs(u0) - 0.36;
+        // 顶圆底平：下半压一点、上半松一点，就不像个球了
+        const v = v0 > 0 ? v0 * 1.05 : v0 * 0.95;
+        let d = Math.hypot(du / 0.62, v);
+        // 轮廓起伏：脑回在边缘的凸起
+        const th = Math.atan2(v, du);
+        d /= 1 + 0.05 * Math.sin(th * 5 + 1.1) + 0.028 * Math.sin(th * 8.3 - 0.6);
+        /* 颞叶：两侧腰上凹进去一块，轮廓就从「一个圆球」变成「一个脑子」 */
+        const nv = (v - 0.34) / 0.24;
+        const nu = (Math.abs(u0) - 0.8) / 0.32;
+        const notch = Math.exp(-(nv * nv)) * Math.exp(-(nu * nu));
+        d *= 1 + 0.4 * notch;
+        // 脑干：底中央一小截
+        const stem = Math.hypot(u0 / 0.17, (v0 - 1.06) / 0.42) < 1;
+        if (d > 1 && !stem) continue;
+
+        /* 脑回：几条又粗又会扭的脊线，脊与脊之间是暗的脑沟。
+           这里用「取最大」而不是相加 —— 相加会把每个交点都点亮、织成一张网，
+           那就成了大理石纹，不是脑子。 */
+        const warp = valueNoise(u0 * 1.4 + 2.0, v * 1.2 + 5.0) * 2.4;
+        const side = u0 < 0 ? 0 : 2.3; // 两侧半球的褶皱错开，免得像复印出来的
+        const wob = Math.sin(u0 * 2.4 + side + warp * 0.7);
+        const wob2 = Math.sin(v * 3.0 + side * 1.7 + warp * 0.5);
+        let t1 = v + 0.5 - 0.16 * wob;
+        const g1 = Math.exp((-t1 * t1) / 0.0324);
+        t1 = v - 0.12 - 0.18 * wob;
+        const g2 = Math.exp((-t1 * t1) / 0.04);
+        t1 = v - 0.68 - 0.14 * wob;
+        const g3 = Math.exp((-t1 * t1) / 0.0289);
+        let t2 = u0 - 0.46 - 0.22 * wob2;
+        const g4 = 0.92 * Math.exp((-t2 * t2) / 0.0289);
+        t2 = u0 + 0.52 - 0.18 * wob2;
+        const g5 = 0.82 * Math.exp((-t2 * t2) / 0.0225);
+        const folds = Math.max(g1, Math.max(g2, Math.max(g3, Math.max(g4, g5))));
+        // 脊线上再撒一点颗粒，几条带子才不至于太干净。
+        // 整体压暗是有意的：亮的是轮廓和放电，脑肉本身只是一片有纹理的暗色。
+        const tissue =
+          0.07 + 0.6 * folds * (0.72 + 0.55 * valueNoise(u0 * 4.5 + 9.1, v * 4.2 + 3.3));
+        // 两半球之间那道纵裂
+        const fissure = Math.abs(u0) < 0.05 ? 0.16 : 1;
+        // 侧裂：从两侧斜切进去的一道深沟，分出额叶和颞叶
+        const sylvT = 0.42 + 0.44 * (Math.abs(u0) - 0.5);
+        const sylv = Math.abs(u0) > 0.5 && Math.abs(v - sylvT) < 0.08 ? 0.14 : 1;
+        // 从左上打光：上半亮、下半沉
+        const light = clamp(0.72 - u0 * 0.18 - v * 0.36, 0.4, 1.05);
+        // 轮廓收一圈亮边，否则一团粉糊在暗背景里，看不出是个什么东西
+        const rim = smoothstep(0.68, 0.99, d) * 0.62;
+
+        const b = (tissue * light + rim) * fissure * sylv;
+        if (b <= 0.03) continue;
+        // 顶部一点点偏暖、底部偏紫，看着像有血在里面走
+        plot(x, y, b, HUE_BRAIN - v0 * 0.045, 0.4 + 0.14 * folds);
+      }
+    }
+
+    /* ---------- 4) 放电：脑内几处偶尔亮一下 ---------- */
+    for (let i = 0; i < sparks.length; i += 1) {
+      const s = sparks[i];
+      const ph = wrap(t / s.period + s.phase, 1);
+      const flash = Math.pow(Math.max(0, 1 - ph * 14), 2);
+      if (flash <= 0.02) continue;
+      const x = Math.round(s.x);
+      const y = Math.round(s.y);
+      const b = flash * 0.8;
+      plot(x, y, b, HUE_BRAIN - 0.08, 0.16);
+      const halo = b * 0.32;
+      plot(x + 1, y, halo, HUE_BRAIN - 0.06, 0.22);
+      plot(x - 1, y, halo, HUE_BRAIN - 0.06, 0.22);
+      plot(x, y + 1, halo, HUE_BRAIN - 0.06, 0.22);
+      plot(x, y - 1, halo, HUE_BRAIN - 0.06, 0.22);
+    }
+  };
+
+  const render = (t: number) => {
+    if (!ctx) return;
+    drawScene(t);
+    ctx.clearRect(0, 0, W, H);
+
+    const last = RAMP.length - 1;
+    for (let y = 0; y < rows; y += 1) {
+      const py = y * cellH;
+      const rowBase = y * cols;
+      for (let x = 0; x < cols; x += 1) {
+        const idx = rowBase + x;
+        let b = intensity[idx];
+        // 暗到看不见的格子直接留空：黑夜本来就该是黑的
+        if (b <= 0.045) continue;
+        if (b > 1) b = 1;
+
+        const g = glyphBuf[idx];
+        const ch =
+          g > 0 ? CABLE_CHARS[g - 1] : RAMP[clamp(Math.round(Math.pow(b, 0.82) * last), 0, last)];
+        if (ch === ' ') continue;
+
+        const lit = 0.1 + 0.76 * Math.pow(b, 0.8);
+        const si = clamp(Math.round(satBuf[idx] * (SAT_STEPS - 1)), 0, SAT_STEPS - 1);
+        const li = clamp(Math.round(lit * (LIT_STEPS - 1)), 0, LIT_STEPS - 1);
+        ctx.fillStyle = palette[(hueIdx(hueBuf[idx]) * SAT_STEPS + si) * LIT_STEPS + li];
+        ctx.fillText(ch, Math.round(x * cellW), py);
+      }
+    }
+  };
+
+  /* ============================================================
+     循环：锁 30fps，切后台停，门一收起来就彻底停。
+     ============================================================ */
+  const FRAME_MS = 1000 / 30;
+  let raf = 0;
+  let lastTime = 0;
+  let acc = 0;
+
+  const frame = (now: number) => {
+    raf = requestAnimationFrame(frame);
+    if (!lastTime) lastTime = now;
+    const dt = now - lastTime;
+    lastTime = now;
+    acc += dt;
+    if (acc < FRAME_MS) return;
+    acc = Math.min(acc % FRAME_MS, FRAME_MS);
+
+    const t0 = performance.now();
+    render(now / 1000);
+    const cost = performance.now() - t0;
+    costAvg = costAvg * 0.9 + cost * 0.1;
+
+    frameCount += 1;
+    // 掉帧就降一档密度：宁可字符大一点，也不让风扇起飞
+    if (frameCount % 90 === 0 && costAvg > 20 && quality > 0.5) {
+      quality = Math.max(0.5, quality - 0.18);
+      costAvg = 8;
+      build();
+    }
+  };
+
+  const start = () => {
+    if (reduced || raf || !canvas || !ctx) return;
+    lastTime = 0;
+    raf = requestAnimationFrame(frame);
+  };
+
+  const stop = () => {
+    if (!raf) return;
+    cancelAnimationFrame(raf);
+    raf = 0;
+  };
+
+  /* ============================================================
+     门本身的开关逻辑
+     ============================================================ */
   /** 门后面的内容在 gated 期间对键盘与读屏都不可达 */
   const setBackgroundInert = (inert: boolean) => {
     for (const el of document.querySelectorAll<HTMLElement>('.site-header, main, .site-footer')) {
@@ -238,6 +779,7 @@
   /** 把门收起来，人留在本页（只记一笔「本会话已进过站」） */
   const dismissGate = () => {
     if (!gate || gate.classList.contains('is-gone')) return;
+    stop();
     gate.classList.add('is-gone');
     gate.setAttribute('aria-hidden', 'true');
     document.documentElement.classList.remove('is-gated');
@@ -293,5 +835,27 @@
     });
 
     enterLink?.focus({ preventScroll: true });
+
+    if (canvas && ctx) {
+      build();
+      if (reduced) render(4);
+      else start();
+    }
+
+    let resizeTimer = 0;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        if (!gate.classList.contains('is-gone')) {
+          build();
+          if (reduced) render(4);
+        }
+      }, 220);
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden || reduced) stop();
+      else start();
+    });
   }
 </script>
