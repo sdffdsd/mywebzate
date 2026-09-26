@@ -50,11 +50,6 @@ const dateFmt = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' });
     <div class="container">
       <p class="eyebrow reveal">Capabilities</p>
       <h2 class="reveal">这一页能承载什么</h2>
-      <p class="lead reveal">
-        六块能力各自独立、都能单独删掉而不影响其他部分。想加内容就加 Markdown，
-        想加效果就加一个 island，不需要动整体架构。
-      </p>
-
       <div class="grid" style="margin-top: 2.5rem;">
         {capabilities.map((item) => (
           <article class="card reveal">

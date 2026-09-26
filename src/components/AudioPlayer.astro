@@ -7,11 +7,6 @@
   <div class="container">
     <p class="eyebrow">Sound</p>
     <h2>音频与实时频谱</h2>
-    <p class="lead">
-      预加载策略是 <code>none</code>：页面打开时一个字节的音频都不下。
-      点击播放后才开始加载音频，同时用 Web Audio 的 AnalyserNode 画出实时频谱。
-    </p>
-
     <div class="player card" data-player>
       <audio
         id="demo-audio"
@@ -147,11 +142,4 @@
     background: linear-gradient(90deg, var(--accent), var(--accent-2));
   }
 
-  .sound code {
-    font-family: var(--font-mono);
-    font-size: 0.86em;
-    background: rgba(255, 255, 255, 0.06);
-    padding: 0.1em 0.4em;
-    border-radius: 6px;
-  }
 </style>

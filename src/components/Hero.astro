@@ -29,10 +29,6 @@ import heroFallback from '../assets/generated/hero-poster.png';
       <span class="hero__line hero__line--accent">动效与声音</span>
       <span class="hero__line">放进同一个页面</span>
     </h1>
-    <p class="lead hero__lead">
-      纯静态构建，无外部字体、无第三方脚本。首屏只有 ~30KB 关键 CSS/JS，
-      WebGL 与音频可视化按需加载，弱网下也能先看到内容。
-    </p>
     <div class="hero__actions">
       <a class="btn btn--primary" href="#story">看动效 →</a>
       <a class="btn" href="#sound">听声音</a>
@@ -172,11 +168,6 @@ import heroFallback from '../assets/generated/hero-poster.png';
     color: transparent;
   }
 
-  .hero__lead {
-    opacity: 0;
-    animation: hero-rise 0.9s var(--ease) 0.45s forwards;
-  }
-
   .hero__actions {
     display: flex;
     flex-wrap: wrap;
@@ -230,7 +221,6 @@ import heroFallback from '../assets/generated/hero-poster.png';
 
   @media (prefers-reduced-motion: reduce) {
     .hero__line,
-    .hero__lead,
     .hero__actions {
       opacity: 1;
       transform: none;
