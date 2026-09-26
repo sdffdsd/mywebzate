@@ -45,12 +45,6 @@
         <span class="player__fill" data-fill></span>
       </div>
 
-      <p class="muted player__note">
-        替换方式：把音频丢进 <code>public/audio/</code>，改上面的 <code>src</code> 即可。
-        注意：Cloudflare Pages 对 Range 请求返回 200（整体下载），拖动进度条需要等文件下完，
-        所以单文件建议控制在几 MB 以内；要做真正的流式播放，就把音频放到 Cloudflare R2
-        或自有服务器上（仓库里的 <code>server/index.mjs</code> 已正确实现 206 分片响应）。
-      </p>
     </div>
   </div>
 </section>
@@ -151,11 +145,6 @@
     width: 0;
     border-radius: 999px;
     background: linear-gradient(90deg, var(--accent), var(--accent-2));
-  }
-
-  .player__note {
-    margin: 0;
-    font-size: 0.84rem;
   }
 
   .sound code {
