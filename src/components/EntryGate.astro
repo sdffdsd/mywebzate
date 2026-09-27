@@ -11,7 +11,7 @@
  * 和 /wired/ 同一套手艺，全部现算，没有一个图片 / 字体 / 音频文件。
  *
  * 大脑的位置不是写死的：它按 .entry-gate__stage 的实测位置摆放，
- * 所以窗口多大、标题多长，画面和 HTML 都永远对得上。
+ * 所以窗口多大、舞台多高，画面和 HTML 都永远对得上。
  *
  * 为什么是覆盖层而不是把首页搬到 /home/：
  *   1. 网址不变：za4ever.com 还是首页本身，canonical / 站内链接 / 外部反链全都不受影响。
@@ -33,7 +33,14 @@
  *     按下去就是立刻换页，门会一直盖着直到新文档接手，中间不会闪出主站首页。
  *   - 进入音不能在这一页播：文档马上就被换掉，只会剩下半声。所以这里只在按下
  *     ENTER 的那一刻写一个一次性标记，由落地页 /wired/ 读它出声。
- *   - 门上没有任何说明性文字：只有域名、标题、一条 ENTER、一条静音入口。
+ *   - 门上没有任何文字：域名与标题都已撤掉，只剩一条 ENTER、一条静音入口，
+ *     其余全部交给画布上的那颗脑子和它四周的神经网。
+ *
+ * 关于画面密度与摆动（本版调整）：
+ *   - 字格从 8.4px 收到 7.4px，脑子的褶皱多了一层更细的二级脑回；
+ *   - 线缆数量约翻倍，主缆还会长出二级分叉，分叉点上压一颗小结，网更密；
+ *   - 摆动改成「以画面坐标为输入的行波位移场」：同一棵树共用 phase / amp / freq，
+ *     所以分叉接缝处两边算出的是同一个位移，网再密也不会出现断肢。
  */
 ---
 
@@ -42,9 +49,6 @@
   <div class="entry-gate__vignette" aria-hidden="true"></div>
 
   <div class="entry-gate__inner">
-    <p class="entry-gate__label">ZA4EVER.COM</p>
-    <h1 class="entry-gate__title" data-text="WIRED NODE">WIRED NODE</h1>
-
     <!-- 空的占位块：只用来告诉脚本「大脑应该长在哪儿」，本身不画任何东西 -->
     <div class="entry-gate__stage" aria-hidden="true"></div>
 
@@ -111,60 +115,19 @@
   .entry-gate__inner {
     position: relative;
     /* 定宽居中：大脑的尺寸按这一块的实测宽度算。
-       这里必须用视口单位写死 —— 用百分比的话，宽度会反过来由标题撑，
-       舞台就只剩下标题那么窄，脑子也跟着缩成一小团。 */
+       这里必须用视口单位写死 —— 用百分比的话，宽度会反过来被内容撑开或压扁，
+       舞台就跟着忽大忽小，脑子也跟着缩成一小团。
+       标题撤掉之后这条更不能省：现在这一块里只剩舞台和两个按钮，
+       没有任何文字能替它把宽度顶起来。 */
     width: min(calc(100vw - 3rem), 46rem);
     text-align: center;
   }
 
-  .entry-gate__label {
-    margin: 0 0 0.9rem;
-    font-size: 0.72rem;
-    letter-spacing: 0.32em;
-    opacity: 0.6;
-    /* 线缆会从这一行穿过去，压一层阴影免得字被字符咬碎 */
-    text-shadow: 0 1px 10px #05060a, 0 0 5px #05060a;
-  }
-
-  .entry-gate__title {
-    position: relative;
-    margin: 0 0 0.9rem;
-    font-size: clamp(1.5rem, 6vw, 2.5rem);
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    color: #59cfff;
-    text-shadow: 0 0 14px rgba(89, 207, 255, 0.65);
-  }
-
-  .entry-gate__title::before,
-  .entry-gate__title::after {
-    content: attr(data-text);
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-  }
-
-  .entry-gate__title::before {
-    color: #00ffff;
-    animation: gate-glitch 2.4s steps(2) infinite;
-  }
-
-  .entry-gate__title::after {
-    color: #ff3b6b;
-    animation: gate-glitch 1.7s steps(2) infinite reverse;
-  }
-
-  @keyframes gate-glitch {
-    0%, 91%, 100% { transform: translate(0, 0); clip-path: inset(0 0 0 0); }
-    93% { transform: translate(-2px, 1px); clip-path: inset(14% 0 58% 0); }
-    96% { transform: translate(2px, -2px); clip-path: inset(52% 0 22% 0); }
-  }
-
-  /* 大脑的舞台：不给任何样式，只负责在布局里占出那块空间 */
+  /* 大脑的舞台：不给任何样式，只负责在布局里占出那块空间。
+     标题撤掉后这里可以再高一档 —— 脑子是主角，给它更多地方。 */
   .entry-gate__stage {
     width: 100%;
-    height: clamp(200px, 38vh, 460px);
+    height: clamp(240px, 46vh, 540px);
   }
 
   .entry-gate__btn {
@@ -209,13 +172,6 @@
   .entry-gate :focus-visible {
     outline: 2px solid #59cfff;
     outline-offset: 3px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .entry-gate__title::before,
-    .entry-gate__title::after {
-      animation: none;
-    }
   }
 </style>
 
@@ -301,7 +257,7 @@
   const FLUID_V = -1.02;
   const RIM_HALF = DOME_RX * Math.sqrt(Math.max(0, 1 - (RIM_V / DOME_RY) ** 2));
 
-  /* 色相：脑子是暖粉（呼应标题那层红），线缆与玻璃罩是青 —— 一冷一暖对着看 */
+  /* 色相：脑子是暖粉（和线缆那层青一冷一暖对着看） */
   const HUE_BRAIN = 0.92;
   const HUE_CABLE = 0.54;
   const HUE_GLASS = 0.53;
@@ -312,11 +268,19 @@
     dx: number;
     dy: number;
     len: number;
+    /**
+     * phase / amp / freq / hue 是**整棵树共用**的（由主缆传给它的每一根分叉）。
+     * 这是「分叉不断肢」的前提：摆动是以画面坐标为输入的行波场，
+     * 只要同一棵树里所有线段用同一组参数，接缝两侧算出来的位移就是同一个值。
+     */
     phase: number;
     amp: number;
     freq: number;
+    /** 脉冲沿这根线往外跑的速度 —— 这个可以每根不同，脉冲不参与几何连续性 */
     speed: number;
     hue: number;
+    /** 分叉点：会在起点压一颗小结，网看起来才是「节点 + 连线」 */
+    node: boolean;
   }
 
   interface Spark {
@@ -372,50 +336,93 @@
     return Number.isFinite(t) ? t : 0;
   };
 
-  /** 加一根线缆：(x0,y0) 是格子坐标，ang 是出发角。forks > 0 时还会长出分叉。 */
-  const addCable = (ang: number, x0: number, y0: number, forks: number) => {
+  /** 一棵线缆树的摆动参数：主缆掷出来，分叉原样继承 */
+  interface CableTree {
+    phase: number;
+    amp: number;
+    freq: number;
+    hue: number;
+  }
+
+  /**
+   * 加一根线缆：(x0,y0) 是格子坐标，ang 是出发角。
+   * forks > 0 时还会长出分叉；depth 控制分叉层数（只放两层，再多就糊成一团）。
+   * tree 为空表示这是主缆，自己掷一组摆动参数；分叉则继承父级那一组。
+   */
+  const addCable = (
+    ang: number,
+    x0: number,
+    y0: number,
+    forks: number,
+    depth: number,
+    tree?: CableTree,
+  ) => {
     const dx = Math.cos(ang);
     const dy = Math.sin(ang);
     const room = edgeRoom(x0 * cellW, y0 * cellH, dx, dy);
-    const len = room * (0.6 + Math.random() * 0.38);
+    /* 长度收到 0.42 ~ 0.92：原来的 0.5 ~ 0.96 会让太多线一路顶到画面边缘，
+       长直线交叉起来像织布。短一点、层次多一点，才读得出是一根根线缆。 */
+    const len = room * (0.42 + Math.random() * 0.5);
+
+    const t: CableTree =
+      tree ?? {
+        phase: Math.random() * TAU,
+        // 摆幅按 cellW 折算，和屏幕密度无关：约 1.4 ~ 3.6 格
+        amp: (1.4 + Math.random() * 2.2) * cellW,
+        // 波长 157 ~ 314 px：一根线上能看到好几道波，摆动才看得出来
+        freq: 0.02 + Math.random() * 0.024,
+        hue: HUE_CABLE + Math.random() * 0.06,
+      };
+
     cables.push({
       x0,
       y0,
       dx,
       dy,
       len,
-      phase: Math.random() * TAU,
-      amp: 2.5 + Math.random() * 4.5,
-      freq: 0.012 + Math.random() * 0.022,
+      phase: t.phase,
+      amp: t.amp,
+      freq: t.freq,
       speed: 0.07 + Math.random() * 0.09,
-      hue: HUE_CABLE + Math.random() * 0.06,
+      hue: t.hue,
+      node: depth > 0,
     });
 
     for (let k = 0; k < forks; k += 1) {
-      // 分叉从父线「直线路径」上的某点出发：父线摆动不到一格，接缝看不出来
-      const at = len * (0.3 + Math.random() * 0.45);
-      const a2 = ang + (Math.random() < 0.5 ? -1 : 1) * (0.42 + Math.random() * 0.5);
-      addCable(a2, x0 + (dx * at) / cellW, y0 + (dy * at) / cellH, 0);
+      /* 分叉从父线「直线路径」上的某点出发。父线在接缝处确实有位移，
+         但子线继承同一组 tree 参数、又落在同一个画面坐标上，
+         行波场在这一点算出的位移与父线完全相同 —— 所以接缝天然对得上，
+         网再密也不会出现断肢。 */
+      const at = len * (0.28 + Math.random() * 0.5);
+      const a2 = ang + (Math.random() < 0.5 ? -1 : 1) * (0.5 + Math.random() * 0.7);
+      // 一级分叉里再挑一部分长出二级分叉：网更密，但还没到糊的程度
+      const sub = depth === 0 && Math.random() < 0.3 ? 1 : 0;
+      addCable(a2, x0 + (dx * at) / cellW, y0 + (dy * at) / cellH, sub, depth + 1, t);
     }
   };
 
   const buildCables = () => {
     cables = [];
-    const n = Math.round(clamp(cols * 0.115, 10, 20));
+    /* 主缆 20 → 22（比例 0.115 → 0.14），叠上二级分叉之后线段总数约为原来的 1.7 倍。
+       这个数不是拍脑袋定的：0.18 那一版在 1440px 宽、210 列的格子上会把整屏铺满，
+       交叉线糊成一块织物，脑子反而被淹没 —— 密要有度，主缆的放射结构得留得住。 */
+    const n = Math.round(clamp(cols * 0.14, 12, 22));
     for (let i = 0; i < n; i += 1) {
       const ang = (i / n) * TAU + (Math.random() - 0.5) * 0.22;
       addCable(
         ang,
         brain.cx + Math.cos(ang) * brain.rx * 0.86,
         brain.cy + Math.sin(ang) * brain.ry * 0.86,
-        Math.random() < 0.75 ? 2 : 1,
+        Math.random() < 0.6 ? 3 : 2,
+        0,
       );
     }
   };
 
   const buildSparks = () => {
     sparks = [];
-    for (let i = 0; i < 18; i += 1) {
+    // 放电点从 18 提到 32：脑子内部的活动看起来更密
+    for (let i = 0; i < 32; i += 1) {
       const a = Math.random() * TAU;
       const r = Math.sqrt(Math.random()) * 0.8;
       sparks.push({
@@ -429,7 +436,8 @@
 
   const buildBubbles = () => {
     bubbles = [];
-    for (let i = 0; i < 16; i += 1) {
+    // 气泡从 16 提到 26：缸里的液体更有「在动」的感觉
+    for (let i = 0; i < 26; i += 1) {
       bubbles.push({
         u: (Math.random() * 2 - 1) * 0.8,
         phase: Math.random(),
@@ -446,7 +454,9 @@
     H = Math.max(400, Math.round(window.innerHeight));
     const dpr = clamp(window.devicePixelRatio || 1, 1, 1.75);
 
-    const targetCols = Math.round(clamp((W / 8.4) * quality, 54, 190));
+    /* 字格从 8.4px 收到 7.4px、上限从 190 列提到 210 列：
+       格子越小，脑沟和线缆的台阶越细，整张网看起来才「密」而不「糊」。 */
+    const targetCols = Math.round(clamp((W / 7.4) * quality, 60, 210));
     let fontSize = Math.max(9, W / (targetCols * 0.6));
     for (let i = 0; i < 3; i += 1) {
       ctx.font = `${fontSize}px ${FONT}`;
@@ -503,20 +513,56 @@
     glyphBuf.fill(0);
 
     /* ---------- 1) 线缆：从大脑表面甩出去，信号一段段往外跑 ---------- */
+    const brainPxX = brain.cx * cellW;
+    const brainPxY = brain.cy * cellH;
+    const brainPxRx = brain.rx * cellW;
+    const brainPxRy = brain.ry * cellH;
+
     for (let ci = 0; ci < cables.length; ci += 1) {
       const c = cables[ci];
       const segs = Math.max(2, Math.ceil(c.len / (cellW * 0.5)));
+      const baseX = c.x0 * cellW;
+      const baseY = c.y0 * cellH;
       let prevX = 0;
       let prevY = 0;
       for (let i = 0; i <= segs; i += 1) {
         const s = (i / segs) * c.len;
         const grow = s / c.len; // 0 = 贴着脑子，1 = 最外端
-        /* 摆动：越往外越松（grow），并且整体随时间慢慢摇 —— 线缆是活的 */
-        const sway =
-          Math.sin(s * c.freq + c.phase + t * 0.22) * c.amp * grow +
-          Math.sin(s * c.freq * 0.41 - c.phase * 1.7 + t * 0.13) * c.amp * 0.45 * grow;
-        const px = c.x0 * cellW + c.dx * s - c.dy * sway;
-        const py = c.y0 * cellH + c.dy * s + c.dx * sway;
+        // 直线路径上的落点：摆动是在它之上叠加的位移
+        const sx = baseX + c.dx * s;
+        const sy = baseY + c.dy * s;
+
+        /* 摆动 = 以画面坐标为输入的行波位移场。
+           贴着脑表面不动（sway → 0），越往外越松；
+           三个不同频率的波叠在一起，线就不是整体平移，而是自己拧着走。
+           因为输入是画面坐标、同一棵树共用 phase / amp / freq，
+           接缝两侧算出的位移必然相同 —— 网再密也不会断肢。 */
+        const du = (sx - brainPxX) / brainPxRx;
+        const dv = (sy - brainPxY) / brainPxRy;
+        const g = (du * du + dv * dv - 0.81) / 4.0; // 0.9 格起摆，2.2 格满摆
+        const sway = g <= 0 ? 0 : g >= 1 ? 1 : g * g * (3 - 2 * g);
+
+        let px = sx;
+        let py = sy;
+        if (sway > 0.001) {
+          const k = c.freq;
+          const waveA = Math.sin((sx * 0.72 + sy * 0.68) * k + t * 0.48 + c.phase);
+          const waveB = Math.sin((sx * 0.68 - sy * 0.72) * k * 1.35 - t * 0.38 + c.phase * 1.4);
+          const waveC = Math.sin((sx * 0.55 + sy * 0.83) * k * 2.1 + t * 0.72 + c.phase * 0.6);
+          px += (waveA * 0.9 + waveC * 0.22) * c.amp * sway;
+          py += (waveB * 0.72 + waveC * 0.28) * c.amp * sway;
+        }
+
+        /* 分叉点：压一颗小结，让这张网看起来是「节点 + 连线」而不只是几根线 */
+        if (i === 0 && c.node) {
+          const nx = Math.round(px / cellW);
+          const ny = Math.round(py / cellH);
+          plot(nx, ny, 0.42, c.hue + 0.02, 0.18);
+          plot(nx + 1, ny, 0.18, c.hue + 0.02, 0.3);
+          plot(nx - 1, ny, 0.18, c.hue + 0.02, 0.3);
+          plot(nx, ny + 1, 0.18, c.hue + 0.02, 0.3);
+          plot(nx, ny - 1, 0.18, c.hue + 0.02, 0.3);
+        }
 
         let glyph = 0;
         if (i > 0) {
@@ -633,13 +679,13 @@
         const stem = Math.hypot(u0 / 0.17, (v0 - 1.06) / 0.42) < 1;
         if (d > 1 && !stem) continue;
 
-        /* 脑回：几条又粗又会扭的脊线，脊与脊之间是暗的脑沟。
+        /* 一级脑回：几条又粗又会扭的脊线，脊与脊之间是暗的脑沟。
            这里用「取最大」而不是相加 —— 相加会把每个交点都点亮、织成一张网，
            那就成了大理石纹，不是脑子。 */
         const warp = valueNoise(u0 * 1.4 + 2.0, v * 1.2 + 5.0) * 2.4;
         const side = u0 < 0 ? 0 : 2.3; // 两侧半球的褶皱错开，免得像复印出来的
-        const wob = Math.sin(u0 * 2.4 + side + warp * 0.7);
-        const wob2 = Math.sin(v * 3.0 + side * 1.7 + warp * 0.5);
+        const wob = Math.sin(u0 * 3.6 + side + warp * 0.9);
+        const wob2 = Math.sin(v * 4.4 + side * 1.7 + warp * 0.7);
         let t1 = v + 0.5 - 0.16 * wob;
         const g1 = Math.exp((-t1 * t1) / 0.0324);
         t1 = v - 0.12 - 0.18 * wob;
@@ -650,11 +696,35 @@
         const g4 = 0.92 * Math.exp((-t2 * t2) / 0.0289);
         t2 = u0 + 0.52 - 0.18 * wob2;
         const g5 = 0.82 * Math.exp((-t2 * t2) / 0.0225);
-        const folds = Math.max(g1, Math.max(g2, Math.max(g3, Math.max(g4, g5))));
-        // 脊线上再撒一点颗粒，几条带子才不至于太干净。
+        const coarse = Math.max(g1, Math.max(g2, Math.max(g3, Math.max(g4, g5))));
+
+        /* 二级脑回：更细更密的一层，让皮层看起来是「很多褶皱」，
+           而不是几条大带子。同样取最大，理由同上。 */
+        const wob3 = Math.sin(u0 * 7.2 + side * 0.9 + warp * 1.6);
+        const wob4 = Math.sin(v * 8.3 + side * 2.4 + warp * 1.3);
+        let t3 = v + 0.32 - 0.11 * wob3;
+        const g6 = 0.7 * Math.exp((-t3 * t3) / 0.0121);
+        t3 = v - 0.4 - 0.12 * wob4;
+        const g7 = 0.66 * Math.exp((-t3 * t3) / 0.0144);
+        t3 = v - 0.94 - 0.1 * wob3;
+        const g8 = 0.58 * Math.exp((-t3 * t3) / 0.009);
+        let t4 = u0 - 0.16 - 0.14 * wob4;
+        const g9 = 0.62 * Math.exp((-t4 * t4) / 0.0121);
+        t4 = u0 + 0.22 - 0.13 * wob3;
+        const g10 = 0.56 * Math.exp((-t4 * t4) / 0.01);
+        const fine = Math.max(g6, Math.max(g7, Math.max(g8, Math.max(g9, g10))));
+        /* 细层的强度随位置起伏：有的地方二级脑回压过一级，有的地方一级说了算。
+           固定权重会让整块皮层铺满同一种横纹，看着像块条纹布 ——
+           让权重随位置变，褶皱才是「长的」而不是「印的」。 */
+        const fineAmp = 0.52 + 0.42 * valueNoise(u0 * 2.1 + 7.3, v * 1.9 + 2.4);
+        const folds = Math.max(coarse, fine * fineAmp);
+
+        // 脊线上再撒一点颗粒，几条带子才不至于太干净；
+        // 上面再叠一层高频微纹理，皮层才是「有组织的」，而不是一块布。
         // 整体压暗是有意的：亮的是轮廓和放电，脑肉本身只是一片有纹理的暗色。
-        const tissue =
-          0.07 + 0.6 * folds * (0.72 + 0.55 * valueNoise(u0 * 4.5 + 9.1, v * 4.2 + 3.3));
+        const grain = valueNoise(u0 * 4.5 + 9.1, v * 4.2 + 3.3);
+        const micro = valueNoise(u0 * 12.5 + 1.7, v * 11.0 + 6.3);
+        const tissue = 0.07 + 0.6 * folds * (0.72 + 0.55 * grain) + 0.07 * folds * micro;
         // 两半球之间那道纵裂
         const fissure = Math.abs(u0) < 0.05 ? 0.16 : 1;
         // 侧裂：从两侧斜切进去的一道深沟，分出额叶和颞叶
