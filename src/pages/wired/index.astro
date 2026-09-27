@@ -12,13 +12,14 @@
  *      地平线，进场时慢慢亮起来，中段最亮，再一路暗下去熄灭。
  *   3. 整片天空连同星和月一起向左缓慢漂移，越「近」的天体走得越快，
  *      月亮在水面上的那条光路跟着它一起挪。
- *   3b. 漂移的**起点**由访问者的本地时间决定：日落 18:00 月亮从东边升起，
- *      午夜到天顶，日出 06:00 从西边落下；星空也跟着夜一起转。
- *      白天（06:00–18:00）月亮在地平线以下不画 —— 白天的画面是另一件事，
- *      这一步只做夜里的轨迹。?t=HH:MM 可以覆盖本地时间，方便对时。
- *   4. 每帧给每个格子算一个「亮度 + 色相 + 饱和度」，分七层叠加：
- *        星云 → 流星带的雾 → 流星 → 星 → 月 → 地平线光带
- *        → 海面（透视压缩的浪 + 月光碎路）
+ *   3b. 漂移的**起点**由访问者的本地时间决定，整幅画跟着「现在几点」走：
+ *      夜里（18:00–06:00）月亮东升西落、星空一起转；
+ *      白天（06:00–18:00）太阳走同一条轨道，天光亮起来、星星星云流星一起退场。
+ *      两者在 06:00 / 18:00 都贴着地平线，所以是同一套坐标算出来的，接得上。
+ *      ?t=HH:MM 可以覆盖本地时间，方便对时。
+ *   4. 每帧给每个格子算一个「亮度 + 色相 + 饱和度」，分八层叠加：
+ *        白天的天光 → 星云 → 流星带的雾 → 流星 → 星 → 月/日 → 地平线光带
+ *        → 海面（透视压缩的浪 + 日月碎成的一条路）
  *   5. 亮度决定字形（ASCII 密度阶梯，或 0/1 的有序抖动）与颜色深浅。
  *
  * 上一版这里的「噪音」全部删掉了：
@@ -189,13 +190,15 @@ const description =
         /* 一团柔和的暗色晕圈：压住背后的字符，保证文字始终读得清。
            它不是边框也不是卡片，所以看起来仍然像「字浮在星海上」。
            字符网格加密之后星星多了，所以这里把过渡拉得更长、更平 ——
-           否则在密星里会看出一个椭圆形的「洞」。 */
+           否则在密星里会看出一个椭圆形的「洞」。
+           白天 JS 会把 --halo 调低（0.93 → 0.62）：天亮了罩子还这么黑就成了黑斑，
+           但也不能再低 —— 标题最暗的那支是 #4f9fc8，底下亮过 90 就压不住了。 */
         background: radial-gradient(
           ellipse at center,
-          rgba(3, 6, 14, 0.93) 0%,
-          rgba(3, 6, 14, 0.74) 34%,
-          rgba(3, 6, 14, 0.4) 58%,
-          rgba(3, 6, 14, 0.14) 78%,
+          rgba(3, 6, 14, var(--halo, 0.93)) 0%,
+          rgba(3, 6, 14, calc(var(--halo, 0.93) * 0.8)) 34%,
+          rgba(3, 6, 14, calc(var(--halo, 0.93) * 0.43)) 58%,
+          rgba(3, 6, 14, calc(var(--halo, 0.93) * 0.15)) 78%,
           rgba(3, 6, 14, 0) 100%
         );
       }
@@ -709,6 +712,22 @@ const description =
       /* 星空整夜转过的宽度（屏）：和月亮同向，天球才是一起转的 */
       const SKY_NIGHT_SPAN = 1.05;
 
+      /* ============================================================
+         白天的天光
+         ------------------------------------------------------------
+         06:00 日出 → 12:00 天顶 → 18:00 日落。天顶深、地平线亮 ——
+         大气越靠近地平线越厚，真实的白昼也是那一带最白。
+         dayness 用 sin^0.55 而不是 sin：一次方在 07:00 才爬到 0.26，
+         天迟迟不亮；压到 0.55 之后 07:00 已经有 0.5，天亮得快、黄昏暗得也快。
+
+         亮度刻意停在「深色白天」这一档（地平线约 0.9、天顶约 0.18 的字符密度），
+         不往正午的刺白走：这一页的文字（标题、面板、页脚）全是按深底设计的，
+         真拉到全白，标题那圈暗色晕罩就会变成一块突兀的黑斑。
+         ============================================================ */
+      const DAY_ZENITH = 0.24;
+      const DAY_HORIZON = 0.82;
+      const DAY_CURVE = 0.55;
+
       /* 画面三段的分界（占视口高度的比例）：天空 → 流星带 → 海面。
          中间这段就是新长出来的「背景长度」：天和海不再硬碰硬地接在一起，
          而是隔着一整条过渡带，纵深也就多了一层。 */
@@ -840,6 +859,8 @@ const description =
       let quality = 1;
       let costAvg = 8;
       let frameCount = 0;
+      /* 标题晕罩的当前不透明度，用来避免每帧重复写 CSS 变量 */
+      let lastHalo = -1;
 
       const plot = (x: number, y: number, b: number, h: number, s: number) => {
         if (!(x >= 0 && y >= 0 && x < cols && y < rows)) return;
@@ -976,8 +997,63 @@ const description =
         const moonFade =
           smoothstep(0, moonWin, moonXs) * smoothstep(0, moonWin, cols - moonXs);
 
+        /* ---------- 太阳的位置：和月亮同一条轨道，只是走的是白天那半圈 ----------
+           d = 0 日出 → 0.5 天顶 → 1 日落。两者在 06:00 / 18:00 都贴着地平线，
+           所以「月亮刚落下、太阳刚升起」是同一套坐标算出来的，接得上。 */
+        const isDay = nightU >= 1;
+        const dayPhase = isDay ? nightU - 1 : 0;
+        const dayness = isDay ? Math.pow(Math.sin(Math.PI * dayPhase), DAY_CURVE) : 0;
+        const sunArc = isDay ? Math.pow(Math.sin(Math.PI * dayPhase), MOON_ARC_POW) : 0;
+        const sunXs = cols * lerp(MOON_RISE_X, MOON_SET_X, dayPhase);
+        const sunY = lerp(moonLowY, moonTopY, sunArc);
+        const sunFade = isDay
+          ? smoothstep(0, moonWin, sunXs) * smoothstep(0, moonWin, cols - sunXs)
+          : 0;
+        /* 水面上那条光路只有一个光源：白天跟太阳、夜里跟月亮。
+           切换点上两者都是 0（月亮早跑出画面、太阳刚露头），所以不会跳。 */
+        const lightXs = isDay ? sunXs : moonXs;
+        const lightFade = isDay ? sunFade : moonFade;
+        /* 星星、星云、流星按天光一起退场 */
+        const nightGain = 1 - dayness;
+
+        /* 标题那圈暗色晕罩白天要淡下来：天亮了，罩子还是 0.93 就成一块突兀的黑斑。
+           只在变化超过 0.02 时才写 CSS 变量 —— 每帧写会白白触发样式重算。 */
+        const haloAlpha = 0.93 - 0.31 * dayness;
+        if (Math.abs(haloAlpha - lastHalo) > 0.02) {
+          lastHalo = haloAlpha;
+          document.documentElement.style.setProperty('--halo', haloAlpha.toFixed(3));
+        }
+
+        /* ---------- 0) 白天的天光：先把天铺亮，后面几层再叠上去 ----------
+           夜里 dayness = 0，这一段整块跳过，代价为零。 */
+        if (dayness > 0.004) {
+          for (let y = 0; y < bandTop; y += 1) {
+            const v = y / Math.max(1, bandTop); // 0 天顶 → 1 地平线
+            const base = dayness * (DAY_ZENITH + DAY_HORIZON * Math.pow(v, 1.2));
+            if (base <= 0.02) continue;
+            for (let x = 0; x < cols; x += 1) {
+              const idx = y * cols + x;
+              /* 太阳周围把天光本身抬起来，而不是画一个硬边光晕 ——
+                 1/(1+d²) 比 exp 便宜，形状几乎一样。 */
+              const dsx = (x - sunXs) / Math.max(8, cols * 0.17);
+              const dsy = (y - sunY) / Math.max(6, bandTop * 0.55);
+              const halo = 1 / (1 + (dsx * dsx + dsy * dsy) * 1.7);
+              const n = valueNoise(x * 0.03 + 3.1, y * 0.045 + 7.7);
+              /* 再叠一层低频：白天要是只有一层细颗粒，天就成了一张均匀的网。
+                 这一层频率低得多，起伏就是「云的块」。 */
+              const n2 = valueNoise(x * 0.011 + 21.3, y * 0.018 + 9.4);
+              const b = base * (0.7 + 0.28 * n + 0.36 * n2) + dayness * 0.3 * halo;
+              if (b <= intensity[idx]) continue;
+              intensity[idx] = b;
+              // 天顶偏深蓝、地平线偏青白；太阳附近往暖里偏
+              hueBuf[idx] = lerp(0.6, 0.55, v) - halo * 0.07 + (n2 - 0.5) * 0.03;
+              satBuf[idx] = lerp(0.58, 0.3, v) - halo * 0.16;
+            }
+          }
+        }
+
         /* ---------- 1) 星云：天空的底色，紫到品红，跟着天一起往左漂 ---------- */
-        for (let y = 0; y < bandTop; y += 1) {
+        for (let y = 0; y < bandTop && nightGain > 0.004; y += 1) {
           // 阈值拉高：噪声只有最高的那一部分才结成云，天空大部分留黑 —— 太空本来就该是空的
           const nfade =
             smoothstep(0, bandTop * 0.1, y) * (1 - 0.7 * smoothstep(bandTop * 0.78, bandTop, y));
@@ -989,7 +1065,7 @@ const description =
             const a = smoothstep(0.6, 1, fbm(nx, ny));
             if (a <= 0.02) continue;
             const idx = y * cols + x;
-            const cloud = a * nfade * 0.4;
+            const cloud = a * nfade * 0.4 * nightGain;
             if (cloud <= intensity[idx]) continue;
             intensity[idx] = cloud;
             hueBuf[idx] = lerp(0.87, 0.73, smoothstep(0.35, 0.85, valueNoise(nx * 1.9 + 5.5, ny * 1.9)));
@@ -1002,7 +1078,9 @@ const description =
            单格都暗到几乎看不见，几十行叠起来才成一条过渡带。 */
         for (let y = bandTop; y < horizon; y += 1) {
           const v = (y - bandTop) / Math.max(1, horizon - bandTop); // 0 = 带顶，1 = 地平线
-          const mist = (0.03 + 0.13 * Math.pow(v, 1.5)) * 0.9;
+          // 白天这一段跟着天光一起亮：它本来就是「大气的厚度」，天亮它就该亮
+          const mist =
+            (0.03 + 0.13 * Math.pow(v, 1.5)) * 0.9 + dayness * 0.36 * Math.pow(v, 1.1);
           const ny = y * 0.05;
           for (let x = 0; x < cols; x += 1) {
             const nx = (x + drift * 0.3) * 0.021;
@@ -1011,7 +1089,9 @@ const description =
             const b = mist * (0.35 + 1.05 * n);
             if (b <= 0.012) continue;
             // 从上到下由紫转青：接住上面的星云，也接住下面的地平线
-            plot(x, y, b, lerp(0.72, 0.545, v), 0.52);
+            // 夜里从上到下由紫转青；白天整段往天光那支蓝里靠
+            const mistHue = lerp(0.72, 0.545, v);
+            plot(x, y, b, lerp(mistHue, 0.565, dayness * 0.75), lerp(0.52, 0.38, dayness));
           }
         }
 
@@ -1020,7 +1100,7 @@ const description =
            中段最亮，然后一路暗下去熄灭，尾巴在后面一级一级变淡。
            位置全是时间的函数，没有任何逐帧随机数（那会变成闪烁，就又成噪音了）。 */
         const bandH = horizon - bandTop + 1;
-        for (let i = 0; i < meteors.length; i += 1) {
+        for (let i = 0; i < meteors.length && nightGain > 0.004; i += 1) {
           const m = meteors[i];
           const p = (t * m.speed + m.phase) % 1;
           const headY = bandTop - m.len + p * (bandH + m.len);
@@ -1033,7 +1113,7 @@ const description =
           for (let k = 0; k < m.len; k += 1) {
             const y = Math.round(headY - k);
             if (y < bandTop || y >= horizon) continue;
-            const b = env * Math.pow(1 - k / m.len, 2.2) * m.gain;
+            const b = env * Math.pow(1 - k / m.len, 2.2) * m.gain * nightGain;
             if (b <= 0.05) continue;
             // 尾巴往右上拖，因为它是在往左下掉
             plot(Math.round(mx + k * 0.24), y, b, m.hue, m.sat);
@@ -1041,7 +1121,7 @@ const description =
         }
 
         /* ---------- 4) 星星：越近越亮的点，加一点点很慢的呼吸 ---------- */
-        for (let i = 0; i < stars.length; i += 1) {
+        for (let i = 0; i < stars.length && nightGain > 0.004; i += 1) {
           const s = stars[i];
           // 位移按 z 分档：近的（z 大）跑得快，远的几乎黏在星云上 —— 第二层视差
           const sx = wrap(s.x - drift * (0.5 + 1.05 * s.z), cols);
@@ -1050,7 +1130,7 @@ const description =
           if (edge <= 0.02) continue;
           const twinkle = 0.72 + 0.28 * Math.sin(t * s.tw + s.phase);
           const fade = 1 - 0.82 * smoothstep(bandTop * 0.72, bandTop, s.y);
-          const b = (0.06 + 0.92 * s.z) * twinkle * fade * edge;
+          const b = (0.06 + 0.92 * s.z) * twinkle * fade * edge * nightGain;
           if (b <= 0.05) continue;
           const xi = Math.round(sx);
           const yi = Math.round(s.y);
@@ -1094,14 +1174,40 @@ const description =
           }
         }
 
+        /* ---------- 5b) 太阳：白天的光源，和月亮同一条轨道、同一个大小 ----------
+           颜色要的是**高饱和 + 高亮度**，不是低饱和。
+           调色板的亮度上限只有 80%，低饱和的暖色落在这里就是一块土褐色的盘子；
+           hsl(45, 100%, 69%) 才是那种金黄 —— 靠饱和度把它顶上去。 */
+        if (sunFade > 0.01) {
+          const sy0 = Math.max(0, Math.floor(sunY - moonR * aspect - 2));
+          const sy1 = Math.min(rows - 1, Math.ceil(sunY + moonR * aspect + 2));
+          const sx0 = Math.max(0, Math.floor(sunXs - moonR - 2));
+          const sx1 = Math.min(cols - 1, Math.ceil(sunXs + moonR + 2));
+          for (let y = sy0; y <= sy1; y += 1) {
+            for (let x = sx0; x <= sx1; x += 1) {
+              const d = Math.hypot(x - sunXs, (y - sunY) * aspect) / moonR;
+              if (d <= 1) {
+                /* 中心偏白、边缘偏金：亮度被调色板压在 80% 以下，
+                   「白热」只能靠**降饱和**做 —— 中心 0.56、边缘 0.98。 */
+                const core = 1 - d * d;
+                plot(x, y, 1.08 * (0.86 + 0.24 * core) * sunFade, 0.125, 0.98 - 0.42 * core);
+              } else if (d < 1.95) {
+                const g = Math.pow(1 - (d - 1) / 0.95, 2.2) * 0.5 * sunFade;
+                if (g > 0.02) plot(x, y, g, 0.1, 0.46);
+              }
+            }
+          }
+        }
+
         /* ---------- 6) 地平线：流星带与海的分界，也是纵深的最远处 ---------- */
         for (let y = Math.max(0, horizon - 5); y <= Math.min(rows - 1, horizon + 4); y += 1) {
           const g = Math.exp(-Math.pow((y - horizon - 0.2) / 0.95, 2));
           if (g < 0.01) continue;
           const above = clamp((horizon - y) / 5, 0, 1);
-          const glow = g * lerp(0.66, 0.36, above);
-          const h = lerp(0.505, 0.77, above * 0.85);
-          const s = lerp(0.42, 0.56, above);
+          // 白天这条光带跟着天光一起抬起来，并往青白偏 —— 夜里那条是冷青的
+          const glow = g * lerp(0.66, 0.36, above) + g * dayness * 0.36;
+          const h = lerp(lerp(0.505, 0.77, above * 0.85), 0.575, dayness * 0.7);
+          const s = lerp(lerp(0.42, 0.56, above), 0.34, dayness);
           for (let x = 0; x < cols; x += 1) {
             // 沿线明暗不均，才像一条被水汽切碎的光，而不是拿尺子画的一根亮线
             const mod =
@@ -1127,10 +1233,11 @@ const description =
           const haze = Math.exp(-v * 4.2); // 远处被地平线的光雾化
           // 浪与浪之间的水面压得很暗：对比度越高，越像一片有深度的水
           const band =
-            (0.02 + 0.26 * haze) * (0.75 + 0.25 * Math.sin(v * 9 - t * 0.45)) * (1 - 0.5 * near);
-          const rowHue = 0.5 + 0.105 * near; // 近处的蓝更深
-          const rowSat = 0.34 + 0.3 * near; // 近处更饱和，远处更灰
-          const spread = 4 + 28 * near; // 月光路越近越宽
+            (0.02 + 0.26 * haze) * (0.75 + 0.25 * Math.sin(v * 9 - t * 0.45)) * (1 - 0.5 * near) +
+            dayness * (0.13 + 0.24 * haze); // 白天整片水面抬亮：亮天配黑海，反差会假
+          const rowHue = lerp(0.5 + 0.105 * near, 0.565, dayness * 0.65); // 近处的蓝更深
+          const rowSat = lerp(0.34 + 0.3 * near, 0.3, dayness * 0.6); // 近处更饱和，远处更灰
+          const spread = 4 + 28 * near; // 那条光路越近越宽
           // 浪尖：近处又亮又宽；远处淡到只剩雾，免得高频波纹在远处糊成噪点
           const crestGain = (0.25 + 0.78 * near) * smoothstep(0, 0.28, v);
 
@@ -1149,12 +1256,18 @@ const description =
             // 一片浪的大小有别：成组的浪头才不像拉出来的条纹
             const group = 0.5 + 0.5 * valueNoise(x * 0.045 + 17.3, vseed * 2.1);
 
-            // 月光那条路钉在月亮的横坐标上：月亮往左挪一格，水上碎光就跟一格；
-            // 月亮淡出时这条路也一起淡掉，所以月亮「落下去」时海面是真的暗下来。
-            const dx = (x - moonXs) / spread;
+            /* 那条光路钉在**光源**的横坐标上：夜里是月亮、白天是太阳。
+               光源往左挪一格，水上碎光就跟一格；光源淡出时这条路一起淡掉，
+               所以月亮「落下去」时海面是真的暗下来，太阳沉下去也一样。 */
+            const dx = (x - lightXs) / spread;
             const shimmer = 0.5 + 0.5 * Math.sin(t * 1.7 + y * 0.55 + x * 0.11);
             const glitter =
-              crest * Math.exp(-dx * dx * 3.6) * (0.18 + 0.72 * near) * shimmer * moonFade;
+              crest *
+              Math.exp(-dx * dx * 3.6) *
+              (0.18 + 0.72 * near) *
+              shimmer *
+              lightFade *
+              (1 + dayness * 0.55); // 日头比月亮烈，碎光也更碎更亮
 
             // 远处的光雾也要有横向的疏密，否则地平线下面会是一条平滑的色带
             const farPatch = 0.55 + 0.9 * valueNoise(x * 0.06 + 5.1, v * 26 + 11.3);
@@ -1166,8 +1279,8 @@ const description =
             let s = rowSat;
             if (glitter > 0.03) {
               const g = clamp(glitter * 2.6, 0, 1);
-              h = lerp(rowHue, 0.125, g); // 碎在浪尖上的月光是暖的
-              s = lerp(rowSat, 0.36, g);
+              h = lerp(rowHue, 0.125, g); // 碎在浪尖上的光（月/日）都是暖的
+              s = lerp(rowSat, lerp(0.36, 0.22, dayness), g);
             }
             if (crest > 0.72) {
               s = lerp(s, 0.18, ((crest - 0.72) / 0.28) * 0.8); // 浪沫偏白
