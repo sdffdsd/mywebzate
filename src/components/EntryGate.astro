@@ -36,6 +36,18 @@
  *   - 门上没有任何文字：域名与标题都已撤掉，只剩一条 ENTER、一条静音入口，
  *     其余全部交给画布上的那颗脑子和它四周的神经网。
  *
+ * 关于 ENTER 的位置与悬停（本版调整）：
+ *   - ENTER 不再排在舞台下面，而是**绝对定位压在舞台正中**。舞台正中就是
+ *     brain.cx / brain.cy —— 脚本正是按这块舞台的实测中心摆的脑子，
+ *     所以按钮天然落在大脑中间，窗口怎么变都不会跑偏。
+ *   - 鼠标移上去时，ENTER 一边化开一边往两边散（opacity + letter-spacing + blur），
+ *     PRESS 同步显影 —— 一个在化开、一个在收拢，读起来就是「ENTER 变成了 PRESS」。
+ *     两个标签叠在同一格里，盒子尺寸取较大者，切换时不会抖，中心也始终不动。
+ *     悬停只对真正有指针的设备生效（@media (hover: hover)），触屏不会粘住状态；
+ *     键盘聚焦时给同一套反馈，但要先过 html.is-kbd 一道 —— 门打开时脚本会自动
+ *     聚焦 ENTER，那次程序化聚焦也会被浏览器算成「键盘聚焦」，不加这道判断
+ *     会一进页面就显示 PRESS（详见脚本里的注释）。
+ *
  * 关于画面密度与摆动（本版调整）：
  *   - 字格从 8.4px 收到 7.4px，脑子的褶皱多了一层更细的二级脑回；
  *   - 线缆数量约翻倍，主缆还会长出二级分叉，分叉点上压一颗小结，网更密；
@@ -49,10 +61,20 @@
   <div class="entry-gate__vignette" aria-hidden="true"></div>
 
   <div class="entry-gate__inner">
-    <!-- 空的占位块：只用来告诉脚本「大脑应该长在哪儿」，本身不画任何东西 -->
-    <div class="entry-gate__stage" aria-hidden="true"></div>
+    <!-- 大脑与按钮合成一块：按钮绝对定位压在舞台正中，
+         也就是大脑正中（脚本正是按这块舞台的实测中心摆的脑子）。 -->
+    <div class="entry-gate__brain">
+      <!-- 空的占位块：只用来告诉脚本「大脑应该长在哪儿」，本身不画任何东西 -->
+      <div class="entry-gate__stage" aria-hidden="true"></div>
 
-    <a class="entry-gate__btn" id="entry-gate-enter" href="/wired/">▶ ENTER</a>
+      <!-- 两个标签叠在同一格里：ENTER 淡出、PRESS 淡入。
+           PRESS 对读屏是装饰，真正的链接名仍是 ENTER。 -->
+      <a class="entry-gate__btn" id="entry-gate-enter" href="/wired/">
+        <span class="entry-gate__label entry-gate__label--enter">▶ ENTER</span>
+        <span class="entry-gate__label entry-gate__label--press" aria-hidden="true">▶ PRESS</span>
+      </a>
+    </div>
+
     <p class="entry-gate__hint">
       <button class="entry-gate__skip" id="entry-gate-skip" type="button">静音进入主站 →</button>
     </p>
@@ -123,6 +145,12 @@
     text-align: center;
   }
 
+  /* 大脑 + 按钮：按钮要压在舞台正中，所以这两样得在同一个定位上下文里 */
+  .entry-gate__brain {
+    position: relative;
+    width: 100%;
+  }
+
   /* 大脑的舞台：不给任何样式，只负责在布局里占出那块空间。
      标题撤掉后这里可以再高一档 —— 脑子是主角，给它更多地方。 */
   .entry-gate__stage {
@@ -130,30 +158,125 @@
     height: clamp(240px, 46vh, 540px);
   }
 
+  /* 按钮不再排在舞台下面，而是绝对定位压在舞台正中 —— 也就是大脑正中。
+     translate(-50%, -50%) 让盒子中心落在舞台中心，和脚本算出的 brain.cx / cy
+     是同一个点；窗口怎么变，字都长在脑子中间。
+     --brain-lift 是脚本量出来的微调：脑干拖在下面，但很细，压不住重心，
+     脑子的视觉重心其实比几何中心略高一点。这条偏移由脚本按当前尺寸算好塞进来，
+     没有脚本时退回 0（就是纯几何中心），不会错位。 */
   .entry-gate__btn {
-    display: inline-block;
-    margin-top: 0.4rem;
-    padding: 0.95rem 2.2rem;
+    position: absolute;
+    left: 50%;
+    top: calc(50% - var(--brain-lift, 0px));
+    transform: translate(-50%, -50%);
+    /* 两个标签叠在同一格：盒子尺寸取较大者，切换时不会抖 */
+    display: grid;
+    place-items: center;
+    padding: 0.85rem 1.7rem;
     font: inherit;
     font-size: 0.95rem;
-    letter-spacing: 0.24em;
     color: #59cfff;
-    /* 压一层深色：线缆会从按钮背后过，文字不能被字符咬碎 */
-    background: rgba(5, 8, 14, 0.62);
+    /* 压一层深色：大脑皮层与线缆会从按钮背后过，文字不能被字符咬碎。
+       脑子正中本来就没有线缆（线缆从 0.86 半径才起笔），所以这里比原来透一些，
+       让皮层纹理还能透出来一点。 */
+    background: rgba(5, 8, 14, 0.5);
     border: 2px solid #59cfff;
     cursor: pointer;
     text-decoration: none;
-    text-shadow: 0 0 10px rgba(89, 207, 255, 0.65);
+    text-shadow: 0 0 10px rgba(89, 207, 255, 0.75), 0 0 2px rgba(5, 8, 14, 0.9);
     box-shadow: 0 0 0 1px #000, 5px 5px 0 rgba(0, 0, 0, 0.65);
+    transition:
+      background 0.4s ease,
+      box-shadow 0.4s ease;
   }
 
-  .entry-gate__btn:hover,
-  .entry-gate__btn:focus-visible {
-    background: rgba(89, 207, 255, 0.16);
+  .entry-gate__label {
+    grid-area: 1 / 1;
+    white-space: nowrap;
+    /* letter-spacing 会在最后一个字后面留一份空隙，字看着偏左；
+       margin-right 补上同样大小的负值，字才真正落在盒子正中。
+       两者一起过渡，横向散开时中心始终不动。 */
+    transition:
+      opacity 0.36s ease,
+      letter-spacing 0.42s ease,
+      margin-right 0.42s ease,
+      filter 0.36s ease;
+  }
+
+  /* 两个标签的透明度在整段过渡里大致互补：ENTER 化开的同时 PRESS 显影，
+     中间不会有某一帧「什么都没有」的空档。 */
+  .entry-gate__label--enter {
+    letter-spacing: 0.24em;
+    margin-right: -0.24em;
+    opacity: 1;
+    filter: blur(0);
+  }
+
+  /* PRESS 先藏着，且已经「散开」——显影时正好收拢回正常字距 */
+  .entry-gate__label--press {
+    letter-spacing: 0.06em;
+    margin-right: -0.06em;
+    opacity: 0;
+    filter: blur(5px);
+  }
+
+  /* 悬停：ENTER 一边化开一边往两边散，PRESS 同步显影。
+     只在真有指针的设备上生效，触屏点一下不会把状态粘住。 */
+  @media (hover: hover) {
+    .entry-gate__btn:hover {
+      background: rgba(89, 207, 255, 0.14);
+      box-shadow: 0 0 0 1px #000, 0 0 24px rgba(89, 207, 255, 0.4);
+    }
+
+    .entry-gate__btn:hover .entry-gate__label--enter {
+      opacity: 0;
+      letter-spacing: 0.52em;
+      margin-right: -0.52em;
+      filter: blur(6px);
+    }
+
+    .entry-gate__btn:hover .entry-gate__label--press {
+      opacity: 1;
+      letter-spacing: 0.24em;
+      margin-right: -0.24em;
+      filter: blur(0);
+    }
+  }
+
+  /* 键盘聚焦给同样的反馈：不依赖鼠标也能看见「按下去会发生什么」。
+     注意前面的 html.is-kbd —— 不能直接写 :focus-visible，理由见脚本里的注释：
+     门一打开脚本就会把焦点放到这条链接上，浏览器把那次程序化聚焦也算作
+     「键盘聚焦」，直接写 :focus-visible 会让一进页面就显示 PRESS。 */
+  html.is-kbd .entry-gate__btn:focus-visible {
+    background: rgba(89, 207, 255, 0.14);
+    box-shadow: 0 0 0 1px #000, 0 0 24px rgba(89, 207, 255, 0.4);
+  }
+
+  html.is-kbd .entry-gate__btn:focus-visible .entry-gate__label--enter {
+    opacity: 0;
+    letter-spacing: 0.52em;
+    margin-right: -0.52em;
+    filter: blur(6px);
+  }
+
+  html.is-kbd .entry-gate__btn:focus-visible .entry-gate__label--press {
+    opacity: 1;
+    letter-spacing: 0.24em;
+    margin-right: -0.24em;
+    filter: blur(0);
+  }
+
+  /* 窄屏上按钮别把脑子盖满：缩一档内边距与字号 */
+  @media (max-width: 34rem) {
+    .entry-gate__btn {
+      padding: 0.7rem 1.15rem;
+      font-size: 0.82rem;
+    }
   }
 
   .entry-gate__hint {
-    margin: 0;
+    /* 按钮挪进舞台之后，这里留一点空隙，免得压到画布上缸座的两只脚 */
+    margin: 1rem 0 0;
     font-size: 0.76rem;
     opacity: 0.62;
   }
@@ -501,6 +624,13 @@
     brain.cy = cyPx / cellH;
     brain.rx = Math.max(7, halfW / cellW);
     brain.ry = Math.max(4, halfH / cellH);
+
+    /* 按钮要长在脑子的视觉重心上，而不是几何中心：脑干拖在下面，但很细，
+       压不住重心 —— 脑子的像素面积重心其实比 brain.cy 高一点。
+       实测在 390 ~ 1920 各档宽度下都稳定在 0.06 个 brain.ry 左右，
+       所以按 brain.ry 折算成像素写成 CSS 变量，交给 .entry-gate__btn 的 top。
+       尺寸一变 build() 会重算，按钮不会跑偏。 */
+    gate?.style.setProperty('--brain-lift', `${(brain.ry * cellH * 0.06).toFixed(1)}px`);
 
     buildCables();
     buildSparks();
@@ -905,6 +1035,24 @@
     });
 
     enterLink?.focus({ preventScroll: true });
+
+    /* ENTER ⇄ PRESS 的键盘态（样式见 html.is-kbd 那几条）。
+       不能直接用 :focus-visible：上面这一行 focus() 就发生在页面打开时，
+       浏览器把这次程序化聚焦也算作「键盘聚焦」，直接写 :focus-visible
+       会让门一出现就是 PRESS。所以先记住上一次交互是键盘还是鼠标，
+       等焦点真的因键盘落到按钮上，才给 <html> 打 is-kbd —— 初始那次自然被排除。 */
+    let byKeyboard = false;
+    document.addEventListener('keydown', () => { byKeyboard = true; }, true);
+    document.addEventListener('pointerdown', () => { byKeyboard = false; }, true);
+    document.addEventListener(
+      'focusin',
+      (event) => {
+        if (event.target === enterLink) {
+          document.documentElement.classList.toggle('is-kbd', byKeyboard);
+        }
+      },
+      true,
+    );
 
     if (canvas && ctx) {
       build();
