@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * 备用出口：把 dist/ 用 Node 原生 http 直接托管，并挂上同一个 /api/visit。
+ * 备用出口：把 dist/ 用 Node 原生 http 直接托管，并挂上同一份 /api/visit 与
+ * /api/guestbook（留言板：公开留言 + 私信推送）。
  *
  * 用途（不备案方案的国内直连线路）：
  *   香港 / 日本 / 新加坡的小机器上跑 `npm run serve:node`，
@@ -23,6 +24,7 @@ import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { handleVisit } from '../src/lib/visit-core.ts';
+import { handleGuestbook } from '../src/lib/guestbook-core.ts';
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -36,6 +38,7 @@ const PORT = Number(process.env.PORT ?? argValue('port', '8080'));
 const HOST = process.env.HOST ?? argValue('host', '0.0.0.0');
 const DIST = resolve(ROOT_DIR, argValue('root', 'dist'));
 const DATA_FILE = resolve(ROOT_DIR, process.env.VISIT_DATA_FILE ?? '.data/visits.json');
+const GUESTBOOK_FILE = resolve(ROOT_DIR, process.env.GUESTBOOK_DATA_FILE ?? '.data/guestbook.json');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -78,6 +81,61 @@ function fileStore(file) {
     async set(value) {
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, JSON.stringify({ count: value, updatedAt: new Date().toISOString() }));
+    },
+  };
+}
+
+/* ----------------------------- 静态文件 ----------------------------- */
+
+/* --------------------- 留言板：JSON 文件存储 ---------------------- */
+
+function guestbookStore(file) {
+  const readAll = () => {
+    try {
+      const parsed = JSON.parse(readFileSync(file, 'utf8'));
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const writeAll = (list) => {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, `${JSON.stringify(list, null, 2)}\n`);
+  };
+
+  /* 限流只在单进程内存里做：这台机器通常是单实例备用出口。 */
+  const rate = new Map();
+
+  return {
+    async list(visibility, limit) {
+      return readAll()
+        .filter((entry) => entry.visibility === visibility)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        .slice(0, limit);
+    },
+    async put(entry) {
+      const all = readAll();
+      all.push(entry);
+      writeAll(all);
+      return all.filter((item) => item.visibility === entry.visibility).length;
+    },
+    async remove(id) {
+      const all = readAll();
+      const next = all.filter((entry) => entry.id !== id);
+      if (next.length === all.length) return false;
+      writeAll(next);
+      return true;
+    },
+    async count(visibility) {
+      return readAll().filter((entry) => entry.visibility === visibility).length;
+    },
+    async allow(visitorId, windowSec) {
+      const now = Date.now();
+      const last = rate.get(visitorId);
+      if (last !== undefined && now - last < windowSec * 1000) return false;
+      rate.set(visitorId, now);
+      return true;
     },
   };
 }
@@ -178,11 +236,40 @@ function sendRange(req, res, file, stats) {
 /* ------------------------------- 服务器 ------------------------------- */
 
 const store = fileStore(DATA_FILE);
+const guestbook = guestbookStore(GUESTBOOK_FILE);
 
 const server = createServer(async (req, res) => {
   const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
 
   // --- API ---
+  if (pathname === '/api/guestbook') {
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+
+    /* 留言是 POST，得把请求体原样接过来再交给与平台无关的那份逻辑 */
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
+    const hasBody = req.method !== 'GET' && req.method !== 'HEAD' && body !== undefined;
+
+    const response = await handleGuestbook(
+      new Request(url, { method: req.method, headers: req.headers, body: hasBody ? body : undefined }),
+      guestbook,
+      {
+        salt: process.env.GUESTBOOK_SALT ?? 'dev-salt-change-me',
+        pushWebhook: process.env.GUESTBOOK_PUSH,
+        emailTo: process.env.GUESTBOOK_EMAIL,
+        emailFrom: process.env.GUESTBOOK_EMAIL_FROM,
+        resendKey: process.env.RESEND_API_KEY,
+        adminToken: process.env.GUESTBOOK_ADMIN,
+      },
+    );
+
+    for (const [k, v] of response.headers) res.setHeader(k, v);
+    res.writeHead(response.status);
+    res.end(await response.text());
+    return;
+  }
+
   if (pathname === '/api/visit') {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
     const response = await handleVisit(new Request(url, { method: req.method, headers: req.headers }), store);

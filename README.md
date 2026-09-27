@@ -40,7 +40,8 @@ personal-site/
 │  ├─ scripts/              webgl-hero / scroll-story / audio-player（全部动态 import）
 │  └─ styles/global.css     设计令牌 + 全局排版 + 降级规则
 ├─ functions/api/visit.ts   ★ Cloudflare Pages Function（KV 存储）
-├─ server/index.mjs         ★ 备用出口：Node 静态服务 + Range + 同一个 API
+├─ functions/api/guestbook.ts ★ 留言板 Function（公开留言 + 私信推送）
+├─ server/index.mjs         ★ 备用出口：Node 静态服务 + Range + 同一套 API
 ├─ public/
 │  ├─ _headers              Cloudflare 缓存与安全响应头
 │  └─ audio/demo.wav        示例音频（换成你的 mp3/opus）
@@ -51,6 +52,7 @@ personal-site/
    ├─ 上线手册-路线A.md     逐步上线手册（当前采用：纯 Cloudflare）
    ├─ 技术路线.md           可达性方案、DNS 拓扑、验收、成本与风险
    ├─ wired-星海.md         /wired/ 那张实时字符画的设计取舍与实现
+   ├─ 留言板-实现路径.md    留言板（公开 + 私信）的选型、昵称归属与反滥用
    └─ 拨测记录.md           多线路拨测基线记录模板
 ```
 

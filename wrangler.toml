@@ -16,3 +16,20 @@ compatibility_date = "2026-09-01"
 [[kv_namespaces]]
 binding = "VISITS"
 id = "6636d926f3164259bb5955623a736a32"
+
+# 留言板（/api/guestbook）默认复用上面这个 VISITS 命名空间 —— 键前缀不同
+# （gbp/ gbx/ gbidx/ gbcount/ gbrl/），不会和访客计数的 count 撞。
+# 想分开管，就再建一个命名空间并解开下面这段：
+#
+#   npx wrangler kv namespace create GUESTBOOK
+#
+# [[kv_namespaces]]
+# binding = "GUESTBOOK"
+# id = "<新建后的 id>"
+#
+# 三个可选环境变量（用 wrangler pages secret put 配置，不写在这里）：
+#   GUESTBOOK_SALT   派生访客指纹的盐；不配则用开发默认值，上线前必须配，配了别换
+#   GUESTBOOK_EMAIL  私信收件邮箱（多个用逗号分隔）—— 邮件通道
+#   RESEND_API_KEY   Resend 的 key（三个 secret 之外，按需另配）
+#   GUESTBOOK_PUSH   私信手机推送地址（Bark / Server酱 / 任意收 JSON 的端点）
+#   GUESTBOOK_ADMIN  管理口令：?key=... 可读私信、可删留言；不配则管理接口全部 403

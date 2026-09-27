@@ -1,0 +1,334 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="留言 · ZAKURA" description="留一句话：公开贴在留言板上，或私信站主。">
+  <section class="section">
+    <div class="container">
+      <p class="eyebrow">Guestbook</p>
+      <h1>留言</h1>
+      <p class="lead" id="gb-identity" data-state="loading">正在确认你的署名…</p>
+
+      <form class="gb card" id="gb-form" novalidate>
+        <div class="gb__field">
+          <label for="gb-name">署名</label>
+          <input
+            id="gb-name"
+            name="name"
+            type="text"
+            maxlength="24"
+            autocomplete="nickname"
+            placeholder="留空就用系统给的代号"
+          />
+        </div>
+
+        <div class="gb__field">
+          <label for="gb-message">想说的话</label>
+          <textarea id="gb-message" name="message" rows="5" maxlength="400" required></textarea>
+          <p class="gb__help muted"><span id="gb-remain">400</span> 字以内。写网址超过两条会被挡下。</p>
+        </div>
+
+        <div class="gb__hp" aria-hidden="true">
+          <label for="gb-website">请勿填写</label>
+          <input id="gb-website" name="website" type="text" tabindex="-1" autocomplete="off" />
+        </div>
+
+        <div class="gb__actions">
+          <button class="btn btn--primary" type="submit" data-visibility="public">公开留言</button>
+          <button class="btn" type="submit" data-visibility="private">私信站主</button>
+        </div>
+
+        <p class="gb__status muted" id="gb-status" role="status" aria-live="polite"></p>
+      </form>
+
+      <h2 class="gb__head">
+        公开留言 <span class="muted" id="gb-count"></span>
+      </h2>
+      <ul class="gb-list" id="gb-list" aria-live="polite">
+        <li class="muted">正在读取…</li>
+      </ul>
+
+      <noscript>
+        <p class="muted">留言板与私信都需要 JavaScript；关掉脚本的话，写邮件找我也行。</p>
+      </noscript>
+    </div>
+  </section>
+
+  <script>
+    type Entry = { id: string; nickname: string; message: string; createdAt: string };
+
+    const form = document.getElementById('gb-form') as HTMLFormElement | null;
+    const list = document.getElementById('gb-list');
+    const identity = document.getElementById('gb-identity');
+    const status = document.getElementById('gb-status');
+    const countLabel = document.getElementById('gb-count');
+    const nameInput = document.getElementById('gb-name') as HTMLInputElement | null;
+    const messageInput = document.getElementById('gb-message') as HTMLTextAreaElement | null;
+    const remain = document.getElementById('gb-remain');
+
+    /* 渲染到提交的间隔：太短就是脚本，服务端也会再看一眼 */
+    const startedAt = Date.now();
+
+    const timeFmt = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' });
+
+    const ERROR_TEXT: Record<string, string> = {
+      message_too_short: '再多写两个字吧。',
+      too_many_links: '网址有点多，先去掉几条。',
+      rate_limited: '刚留过一条了，缓一分钟再来。',
+      invalid_json: '提交的内容没读懂，刷新页面再试。',
+      payload_too_large: '内容太长了。',
+      store_unavailable: '存储暂时不可用，过会儿再试。',
+      forbidden: '这个操作需要管理口令。',
+    };
+
+    function render(entries: Entry[], count: number) {
+      if (!list) return;
+      list.replaceChildren();
+
+      if (entries.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'muted';
+        empty.textContent = '还没有人留言 —— 你可以是第一个。';
+        list.append(empty);
+        countLabel && (countLabel.textContent = '');
+        return;
+      }
+
+      for (const entry of entries) {
+        const item = document.createElement('li');
+        item.className = 'gb-item';
+
+        const head = document.createElement('div');
+        head.className = 'gb-item__head';
+
+        const who = document.createElement('span');
+        who.className = 'gb-item__name';
+        who.textContent = entry.nickname;
+
+        const when = document.createElement('time');
+        when.className = 'muted';
+        when.dateTime = entry.createdAt;
+        when.textContent = timeFmt.format(new Date(entry.createdAt));
+
+        const body = document.createElement('p');
+        body.className = 'gb-item__body';
+        /* 一律走 textContent：留言内容是用户输入，永不拼 HTML */
+        body.textContent = entry.message;
+
+        head.append(who, when);
+        item.append(head, body);
+        list.append(item);
+      }
+
+      if (countLabel) countLabel.textContent = `共 ${count} 条`;
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch('/api/guestbook?limit=30', { headers: { accept: 'application/json' } });
+        const data = (await res.json()) as { entries?: Entry[]; count?: number };
+        render(data.entries ?? [], data.count ?? 0);
+      } catch {
+        if (list) list.innerHTML = '<li class="muted">留言读取失败，刷新试试。</li>';
+      }
+    }
+
+    /* 显示服务端按「网络 + 浏览器」算出来的代号，同一台设备长期不变 */
+    async function loadIdentity() {
+      try {
+        const res = await fetch('/api/guestbook?whoami=1', { headers: { accept: 'application/json' } });
+        const data = (await res.json()) as { nickname?: string };
+        if (data.nickname && identity) {
+          identity.textContent = `你会以「${data.nickname}」留言 —— 这个代号按你的网络与浏览器自动分配，同一台设备一直不变。`;
+          identity.dataset.state = 'ok';
+          if (nameInput) nameInput.placeholder = data.nickname;
+        }
+      } catch {
+        if (identity) identity.textContent = '署名由服务端按设备自动分配。';
+      }
+    }
+
+    messageInput?.addEventListener('input', () => {
+      if (remain) remain.textContent = String(400 - messageInput.value.length);
+    });
+
+    /* 老浏览器没有 SubmitEvent.submitter，就用最近一次点击的按钮兜底 */
+    let pendingVisibility: 'public' | 'private' = 'public';
+    form?.querySelectorAll<HTMLButtonElement>('[data-visibility]').forEach((button) => {
+      button.addEventListener('click', () => {
+        pendingVisibility = button.dataset.visibility === 'private' ? 'private' : 'public';
+      });
+    });
+
+    form?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!form) return;
+
+      const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
+      const visibility = submitter?.dataset.visibility === 'private'
+        ? 'private'
+        : submitter
+          ? 'public'
+          : pendingVisibility;
+
+      if (status) status.textContent = '发送中…';
+
+      const payload = {
+        message: messageInput?.value ?? '',
+        name: nameInput?.value ?? '',
+        website: (document.getElementById('gb-website') as HTMLInputElement | null)?.value ?? '',
+        visibility,
+        elapsedMs: Date.now() - startedAt,
+      };
+
+      try {
+        const res = await fetch('/api/guestbook', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = (await res.json()) as { stored?: boolean; pushed?: boolean; error?: string };
+
+        if (res.ok && data.stored) {
+          if (status) {
+            status.textContent =
+              visibility === 'public'
+                ? '已经贴到留言板上了。'
+                : data.pushed
+                  ? '私信已发出，站主会收到提醒。'
+                  : '私信已收到（站主的提醒还没配好，先落在库里了）。';
+          }
+          if (messageInput) messageInput.value = '';
+          if (remain) remain.textContent = '400';
+          if (visibility === 'public') void refresh();
+          return;
+        }
+
+        if (res.status === 202) {
+          if (status) status.textContent = '这条没被收下，换个写法或稍后再试。';
+          return;
+        }
+
+        if (status) status.textContent = ERROR_TEXT[data.error ?? ''] ?? '没发出去，稍后再试。';
+      } catch {
+        if (status) status.textContent = '网络不通，稍后再试。';
+      }
+    });
+
+    void loadIdentity();
+    void refresh();
+  </script>
+
+  <style>
+    .gb {
+      display: grid;
+      gap: 1.1rem;
+      margin-top: 2rem;
+      max-width: 40rem;
+    }
+
+    .gb__field {
+      display: grid;
+      gap: 0.4rem;
+    }
+
+    .gb__field label {
+      font-size: 0.78rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--fg-faint);
+    }
+
+    .gb__field input,
+    .gb__field textarea {
+      width: 100%;
+      font: inherit;
+      color: var(--fg);
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 0.65rem 0.8rem;
+      resize: vertical;
+    }
+
+    .gb__field input:focus-visible,
+    .gb__field textarea:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .gb__help {
+      margin: 0;
+      font-size: 0.78rem;
+    }
+
+    /* 蜜罐：真人看不见，脚本会当它是「填全了」 */
+    .gb__hp {
+      position: absolute;
+      left: -9999px;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+    }
+
+    .gb__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .gb__status {
+      margin: 0;
+      min-height: 1.2em;
+      font-size: 0.9rem;
+    }
+
+    .gb__head {
+      margin: 3rem 0 1.2rem;
+      font-size: 1.1rem;
+      letter-spacing: 0.08em;
+    }
+
+    /* 留言条目是脚本动态插入的，用 :global 才吃得到这份样式 */
+    :global(.gb-list) {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      gap: 1rem;
+    }
+
+    :global(.gb-item) {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 0.9rem 1rem;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    :global(.gb-item__head) {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 0.45rem;
+      font-size: 0.85rem;
+    }
+
+    :global(.gb-item__name) {
+      color: var(--accent);
+      letter-spacing: 0.06em;
+    }
+
+    :global(.gb-item__body) {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      line-height: 1.7;
+    }
+
+    #gb-identity[data-state='ok'] {
+      color: var(--fg);
+    }
+  </style>
+</BaseLayout>
