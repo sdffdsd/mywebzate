@@ -245,7 +245,10 @@ const server = createServer(async (req, res) => {
   const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
 
   // --- API ---
-  if (pathname === '/api/guestbook') {
+  /* 与 Cloudflare 侧同构：管理能力只在 /api/admin/guestbook 上，
+     公开路径连口令都不传，所以那边删不掉也读不到私信。 */
+  if (pathname === '/api/guestbook' || pathname === '/api/admin/guestbook') {
+    const isAdminPath = pathname === '/api/admin/guestbook';
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
     /* 留言是 POST，得把请求体原样接过来再交给与平台无关的那份逻辑 */
@@ -263,8 +266,10 @@ const server = createServer(async (req, res) => {
         emailTo: process.env.GUESTBOOK_EMAIL,
         emailFrom: process.env.GUESTBOOK_EMAIL_FROM,
         resendKey: process.env.RESEND_API_KEY,
-        adminToken: process.env.GUESTBOOK_ADMIN,
         privateCooldownSec: parseCooldownSec(process.env.GUESTBOOK_DM_COOLDOWN),
+        ...(isAdminPath
+          ? { adminToken: process.env.GUESTBOOK_ADMIN, requireAdmin: true }
+          : {}),
       },
     );
 

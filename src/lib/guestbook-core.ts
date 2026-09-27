@@ -76,6 +76,11 @@ export interface GuestbookOptions {
   mailer?: MailerLike;
   /** 管理口令：能读私信、能删留言；不配则管理接口一律 403 */
   adminToken?: string;
+  /**
+   * 只在独立的管理路径上传 true：所有方法都必须先过口令校验。
+   * 公开路径不传它 —— 那边连 adminToken 都不给，管理能力根本不存在。
+   */
+  requireAdmin?: boolean;
   /** 公开留言的冷却窗口（秒），默认 20 */
   rateLimitSec?: number;
   /** 给站主留言（私信）的冷却窗口（秒），默认 300（5 分钟）；设 0 即关闭冷却 */
@@ -200,6 +205,40 @@ export function nicknameFor(visitorId: string): string {
   const n = parseInt(visitorId.slice(2, 4), 16) % NOUNS.length;
   const suffix = visitorId.slice(4, 8);
   return `${ADJECTIVES[a]}${NOUNS[n]} #${suffix}`;
+}
+
+/* ------------------------------ 鉴权 ------------------------------ */
+
+/**
+ * 管理口令只从 `Authorization: Bearer <token>` 读，**不接受 URL 查询串**。
+ *
+ * 为什么不收 `?key=`：查询串会落进 Cloudflare 的请求日志、浏览器历史与
+ * Referer，等于把删除权交给「能看到日志的所有人」。头不会被记录进 URL。
+ */
+export function bearerToken(request: Request): string | null {
+  const raw = request.headers.get('authorization');
+  if (!raw) return null;
+  const matched = /^Bearer[ \t]+(.+)$/i.exec(raw.trim());
+  return matched ? matched[1].trim() : null;
+}
+
+/**
+ * 常量时间比较：先各自哈希成等长摘要（64 个十六进制字符），再逐字节异或累加。
+ * 这样既不会因为提前 return 泄漏已匹配的前缀，也不会泄漏口令长度。
+ * 用 WebCrypto 实现，Workers 与 Node 都能跑，不必依赖各自的 crypto.timingSafeEqual。
+ */
+export async function constantTimeEqual(a: string, b: string): Promise<boolean> {
+  const [left, right] = await Promise.all([sha256Hex(a), sha256Hex(b)]);
+  let diff = 0;
+  for (let i = 0; i < left.length; i += 1) diff |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  return diff === 0;
+}
+
+/** 没配口令就一律不是管理员；配了也要常量时间比对通过才算。 */
+async function isAdminRequest(request: Request, adminToken?: string): Promise<boolean> {
+  if (!adminToken) return false;
+  const provided = bearerToken(request);
+  return provided !== null && (await constantTimeEqual(provided, adminToken));
 }
 
 /* ------------------------------ 校验 ------------------------------ */
@@ -385,7 +424,19 @@ export async function handleGuestbook(
   }
 
   const url = new URL(request.url);
-  const isAdmin = Boolean(options.adminToken) && url.searchParams.get('key') === options.adminToken;
+  const isAdmin = await isAdminRequest(request, options.adminToken);
+
+  /* 管理路径：连「读公开列表」「发留言」都不给，一律先过鉴权 */
+  if (options.requireAdmin && !isAdmin) return fail(403, 'forbidden');
+
+  /* 管理路径只做管理操作：不收留言，也就不牵扯冷却与蜜罐那一套 */
+  if (options.requireAdmin && request.method !== 'GET' && request.method !== 'DELETE') {
+    return new Response(JSON.stringify({ error: 'method_not_allowed' }), {
+      status: 405,
+      headers: { ...JSON_HEADERS, allow: 'GET, DELETE, OPTIONS' },
+    });
+  }
+
   const rateLimitSec = options.rateLimitSec ?? PUBLIC_COOLDOWN_SEC;
   const privateCooldownSec = options.privateCooldownSec ?? PRIVATE_COOLDOWN_SEC;
 
