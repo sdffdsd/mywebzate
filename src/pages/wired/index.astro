@@ -196,16 +196,6 @@ const description =
         );
       }
 
-      .eyebrow {
-        margin: 0;
-        font-size: 0.7rem;
-        letter-spacing: 0.36em;
-        text-transform: uppercase;
-        color: var(--faint);
-        /* 月亮会从这一行后面经过（窄屏上尤其近），给一层阴影免得被月盘吃掉 */
-        text-shadow: 0 1px 14px rgba(0, 0, 0, 0.95), 0 0 6px rgba(0, 0, 0, 0.8);
-      }
-
       /* 标题：像素字。
          视觉全部由画布承担，所以这里只管排版宽度 —— 字号由画布按宽度反推，
          保证 69 列点阵永远铺满这一行的可用宽度。 */
@@ -453,7 +443,6 @@ const description =
     <div class="page">
       <header class="hero">
         <div class="hero__inner">
-          <p class="eyebrow">za4ever.com / wired</p>
           <h1 class="hero__title">
             <span class="hero__title-text">WIRED NODE</span>
             <canvas class="hero__title-glyphs" id="title-glyphs" aria-hidden="true"></canvas>
