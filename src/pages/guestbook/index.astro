@@ -74,12 +74,59 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
     const ERROR_TEXT: Record<string, string> = {
       message_too_short: '再多写两个字吧。',
       too_many_links: '网址有点多，先去掉几条。',
-      rate_limited: '刚留过一条了，缓一分钟再来。',
       invalid_json: '提交的内容没读懂，刷新页面再试。',
       payload_too_large: '内容太长了。',
       store_unavailable: '存储暂时不可用，过会儿再试。',
       forbidden: '这个操作需要管理口令。',
     };
+
+    /* 冷却是按通道各算各的：公开留言松、私信紧（默认 5 分钟）。
+       服务端才是权威，这里只是别让人对着一个必被拒的按钮白点。 */
+    const buttons = [...(form?.querySelectorAll<HTMLButtonElement>('[data-visibility]') ?? [])];
+    const timers = new Map<string, number>();
+
+    const channelName = (visibility: string): string =>
+      visibility === 'private' ? '私信' : '公开留言';
+
+    const formatWait = (sec: number): string => {
+      if (sec < 60) return `${sec} 秒`;
+      const min = Math.floor(sec / 60);
+      const rest = sec % 60;
+      return rest === 0 ? `${min} 分钟` : `${min} 分 ${rest} 秒`;
+    };
+
+    /** 锁住某个通道的按钮并倒计时，时间到自动解锁 */
+    function lockChannel(visibility: string, seconds: number) {
+      const button = buttons.find((item) => item.dataset.visibility === visibility);
+      if (!button || seconds <= 0) return;
+
+      const original = button.dataset.label ?? button.textContent ?? '留言';
+      button.dataset.label = original;
+
+      window.clearInterval(timers.get(visibility));
+      button.disabled = true;
+
+      let left = seconds;
+      const render = () => {
+        if (left > 0) {
+          button.textContent = `${original} · 等 ${formatWait(left)}`;
+          return;
+        }
+        window.clearInterval(timers.get(visibility));
+        timers.delete(visibility);
+        button.disabled = false;
+        button.textContent = original;
+      };
+
+      timers.set(
+        visibility,
+        window.setInterval(() => {
+          left -= 1;
+          render();
+        }, 1000),
+      );
+      render();
+    }
 
     function render(entries: Entry[], count: number) {
       if (!list) return;
@@ -187,7 +234,14 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        const data = (await res.json()) as { stored?: boolean; pushed?: boolean; error?: string };
+        const data = (await res.json()) as {
+          stored?: boolean;
+          pushed?: boolean;
+          error?: string;
+          retryAfter?: number;
+          cooldownSec?: number;
+          visibility?: string;
+        };
 
         if (res.ok && data.stored) {
           if (status) {
@@ -200,7 +254,22 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
           }
           if (messageInput) messageInput.value = '';
           if (remain) remain.textContent = '400';
+          /* 发成功了就照服务端的冷却窗口把按钮锁上，省得白点一次 */
+          lockChannel(visibility, Number(data.cooldownSec) || 0);
           if (visibility === 'public') void refresh();
+          return;
+        }
+
+        if (res.status === 429) {
+          const wait = Number(data.retryAfter) || 0;
+          const channel = data.visibility === 'private' ? 'private' : 'public';
+          if (status) {
+            status.textContent =
+              wait > 0
+                ? `${channelName(channel)}刚发过，还要等 ${formatWait(wait)}。`
+                : '刚留过一条了，缓一会儿再来。';
+          }
+          lockChannel(channel, wait);
           return;
         }
 

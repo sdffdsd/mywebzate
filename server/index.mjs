@@ -24,7 +24,7 @@ import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { handleVisit } from '../src/lib/visit-core.ts';
-import { handleGuestbook } from '../src/lib/guestbook-core.ts';
+import { handleGuestbook, parseCooldownSec } from '../src/lib/guestbook-core.ts';
 
 const ROOT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -130,12 +130,15 @@ function guestbookStore(file) {
     async count(visibility) {
       return readAll().filter((entry) => entry.visibility === visibility).length;
     },
-    async allow(visitorId, windowSec) {
+    async claim(visitorId, windowSec) {
       const now = Date.now();
       const last = rate.get(visitorId);
-      if (last !== undefined && now - last < windowSec * 1000) return false;
+      if (last !== undefined) {
+        const waitMs = windowSec * 1000 - (now - last);
+        if (waitMs > 0) return Math.ceil(waitMs / 1000);
+      }
       rate.set(visitorId, now);
-      return true;
+      return 0;
     },
   };
 }
@@ -261,6 +264,7 @@ const server = createServer(async (req, res) => {
         emailFrom: process.env.GUESTBOOK_EMAIL_FROM,
         resendKey: process.env.RESEND_API_KEY,
         adminToken: process.env.GUESTBOOK_ADMIN,
+        privateCooldownSec: parseCooldownSec(process.env.GUESTBOOK_DM_COOLDOWN),
       },
     );
 

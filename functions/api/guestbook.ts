@@ -16,6 +16,7 @@
  *   GUESTBOOK_EMAIL_FROM 发件人；不配则用 onboarding@resend.dev（Resend 的测试发件人）
  *   RESEND_API_KEY   Resend 的 key（resend.com，免费 3000 封/月）。配上就走邮件。
  *   GUESTBOOK_ADMIN  管理口令。带上 ?key=... 可读私信、可删留言。
+ *   GUESTBOOK_DM_COOLDOWN 给站主留言的冷却秒数（默认 300，即 5 分钟）。设 0 关闭。
  *
  * KV 绑定：wrangler.toml 里绑成 GUESTBOOK；若懒得再建一个命名空间，
  * 也可以直接复用现有的 VISITS 绑定（键前缀不冲突：gbp/ gbx/ gbidx/ gbcount/ gbrl）。
@@ -23,6 +24,7 @@
 
 import {
   handleGuestbook,
+  parseCooldownSec,
   type GuestbookEntry,
   type GuestbookStore,
   type MailerLike,
@@ -51,6 +53,8 @@ interface Env {
   /** 配了 Email Routing 的域名上可以绑 send_email，绑到这个名字就零第三方发信 */
   GUESTBOOK_MAILER?: MailerLike;
   GUESTBOOK_ADMIN?: string;
+  /** 给站主留言（私信）的冷却秒数；不配则用核心默认的 300 秒 */
+  GUESTBOOK_DM_COOLDOWN?: string;
 }
 
 const PREFIX: Record<Visibility, string> = { public: 'gbp:', private: 'gbx:' };
@@ -120,24 +124,28 @@ function createStore(kv: KVNamespaceLike): GuestbookStore {
       return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
     },
 
-    async allow(visitorId, windowSec) {
-      /* KV 的 expirationTtl 下限是 60 秒，比窗口长；
-         所以真正的时间判断放在值里，TTL 只负责事后自动清理。 */
+    async claim(visitorId, windowSec) {
       const key = `${RATE}${visitorId}`;
       const now = Date.now();
       const last = Number(await kv.get(key));
 
-      if (Number.isFinite(last) && last > 0 && now - last < windowSec * 1000) return false;
+      /* 时间判断放在值里，不靠 TTL：KV 的 expirationTtl 下限是 60 秒，
+         而私信窗口是 300 秒 —— TTL 若按旧写法固定 60 秒，冷却会在
+         60 秒后随键过期静默失效。TTL 只负责事后回收，取下限与窗口的较大者。 */
+      if (Number.isFinite(last) && last > 0) {
+        const waitMs = windowSec * 1000 - (now - last);
+        if (waitMs > 0) return Math.ceil(waitMs / 1000);
+      }
 
-      await kv.put(key, String(now), { expirationTtl: 60 });
-      return true;
+      await kv.put(key, String(now), { expirationTtl: Math.max(60, Math.ceil(windowSec)) });
+      return 0;
     },
   };
 
   return store;
 }
 
-/** 没绑 KV 时的兜底：单实例内存，重启即空。 */
+/** 没绑 KV 时的兜底：单实例内存，isolate 重启即空。 */
 function createMemoryStore(): GuestbookStore {
   const entries: GuestbookEntry[] = [];
   const rate = new Map<string, number>();
@@ -161,19 +169,30 @@ function createMemoryStore(): GuestbookStore {
       return true;
     },
     count: async (visibility) => entries.filter((e) => e.visibility === visibility).length,
-    allow: async (visitorId, windowSec) => {
+    claim: async (visitorId, windowSec) => {
       const now = Date.now();
       const last = rate.get(visitorId);
-      if (last !== undefined && now - last < windowSec * 1000) return false;
+      if (last !== undefined) {
+        const waitMs = windowSec * 1000 - (now - last);
+        if (waitMs > 0) return Math.ceil(waitMs / 1000);
+      }
       rate.set(visitorId, now);
-      return true;
+      return 0;
     },
   };
 }
 
+/**
+ * 兜底存储必须建在**模块级**：Workers 的模块状态在同一 isolate 内跨请求存活，
+ * 若在 onRequest 里现建一个，每次请求都是全新的空 Map —— 留言存不住，
+ * 冷却也就永远不会触发（实测如此）。
+ */
+let memoryStore: GuestbookStore | undefined;
+const memoryStoreOnce = (): GuestbookStore => (memoryStore ??= createMemoryStore());
+
 export const onRequest = async (context: { request: Request; env: Env }): Promise<Response> => {
   const kv = context.env.GUESTBOOK ?? context.env.VISITS;
-  const store = kv ? createStore(kv) : createMemoryStore();
+  const store = kv ? createStore(kv) : memoryStoreOnce();
 
   return handleGuestbook(context.request, store, {
     /* 开发默认盐：只为了让本地跑得通，上线务必用 GUESTBOOK_SALT 覆盖 */
@@ -184,5 +203,6 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
     resendKey: context.env.RESEND_API_KEY,
     mailer: context.env.GUESTBOOK_MAILER,
     adminToken: context.env.GUESTBOOK_ADMIN,
+    privateCooldownSec: parseCooldownSec(context.env.GUESTBOOK_DM_COOLDOWN),
   });
 };

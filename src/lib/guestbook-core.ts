@@ -49,8 +49,16 @@ export interface GuestbookStore {
   /** 按 id 删除，返回是否删到了 */
   remove(id: string): Promise<boolean>;
   count(visibility: Visibility): Promise<number>;
-  /** 限流：允许则返回 true；同一指纹在 windowSec 内重复请求返回 false */
-  allow(visitorId: string, windowSec: number): Promise<boolean>;
+  /**
+   * 冷却：尝试占用一次提交名额。
+   *
+   * @returns 0 = 放行，并已记下这次提交；> 0 = 这段时间内已经提交过，还需等待的秒数。
+   *
+   * ⚠️ 返回值与布尔相反（0 是成功），故意不叫 allow —— 免得被写成 `if (await …)`。
+   * ⚠️ 实现必须让记录至少存活 windowSec：KV 的 expirationTtl 下限是 60 秒，
+   *    但私信窗口是 300 秒，TTL 若跟着写死 60 秒，冷却会在 60 秒后静默失效。
+   */
+  claim(key: string, windowSec: number): Promise<number>;
 }
 
 export interface GuestbookOptions {
@@ -68,8 +76,10 @@ export interface GuestbookOptions {
   mailer?: MailerLike;
   /** 管理口令：能读私信、能删留言；不配则管理接口一律 403 */
   adminToken?: string;
-  /** 公开留言的限流窗口（秒），默认 20 */
+  /** 公开留言的冷却窗口（秒），默认 20 */
   rateLimitSec?: number;
+  /** 给站主留言（私信）的冷却窗口（秒），默认 300（5 分钟）；设 0 即关闭冷却 */
+  privateCooldownSec?: number;
 }
 
 /** Cloudflare 的 send_email 绑定（Email Routing）最小接口 */
@@ -96,6 +106,23 @@ const JSON_HEADERS = {
 const MAX_MESSAGE = 400;
 const MAX_NAME = 24;
 const MAX_BODY_BYTES = 8 * 1024;
+
+/* ---------------------------- 冷却窗口 ---------------------------- */
+
+/** 公开留言：防刷屏即可，不必太长 */
+export const PUBLIC_COOLDOWN_SEC = 20;
+/** 给站主留言（私信）：一条私信就是一次打扰，收紧到 5 分钟 */
+export const PRIVATE_COOLDOWN_SEC = 300;
+
+/**
+ * 从环境变量读冷却秒数。认得出 0（表示关闭冷却），
+ * 读不懂就返回 undefined 让调用方用默认值 —— 不能把空串当成 0。
+ */
+export function parseCooldownSec(raw: unknown): number | undefined {
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : undefined;
+}
 
 /* ------------------------------ 昵称 ------------------------------ */
 
@@ -210,6 +237,14 @@ const toPublic = (entry: GuestbookEntry): PublicEntry => ({
   message: entry.message,
   createdAt: entry.createdAt,
 });
+
+/**
+ * 两道通道各用一个冷却键，公开留言与私信互不牵连 ——
+ * 否则「刚发过一条公开留言」会把私信一起锁 5 分钟。
+ * 具体前缀由各存储实现补（KV 那边是 gbrl:）。
+ */
+const cooldownKey = (visitor: Visitor, visibility: Visibility): string =>
+  visibility === 'private' ? `${visitor.rateKey}:dm` : visitor.rateKey;
 
 /* ---------------------------- 私信推送 ---------------------------- */
 
@@ -351,7 +386,8 @@ export async function handleGuestbook(
 
   const url = new URL(request.url);
   const isAdmin = Boolean(options.adminToken) && url.searchParams.get('key') === options.adminToken;
-  const rateLimitSec = options.rateLimitSec ?? 20;
+  const rateLimitSec = options.rateLimitSec ?? PUBLIC_COOLDOWN_SEC;
+  const privateCooldownSec = options.privateCooldownSec ?? PRIVATE_COOLDOWN_SEC;
 
   /* ---------------------------- 读 ---------------------------- */
   if (request.method === 'GET') {
@@ -436,8 +472,12 @@ export async function handleGuestbook(
   const nickname = customName || nicknameFor(visitor.visitorId);
 
   try {
-    if (!(await store.allow(visitor.rateKey, rateLimitSec))) {
-      return fail(429, 'rate_limited', { retryAfter: rateLimitSec });
+    /* 给站主留言比公开留言收得紧：一条私信就是一次打扰，默认 5 分钟 */
+    const cooldownSec = visibility === 'private' ? privateCooldownSec : rateLimitSec;
+    const waitSec = await store.claim(cooldownKey(visitor, visibility), cooldownSec);
+
+    if (waitSec > 0) {
+      return fail(429, 'rate_limited', { retryAfter: waitSec, cooldownSec, visibility });
     }
 
     const entry: GuestbookEntry = {
@@ -466,6 +506,8 @@ export async function handleGuestbook(
         pushed: notify.ok,
         channels: notify.channels,
         total,
+        /* 告诉前端这条通道的冷却窗口，好让它立刻把按钮锁上 */
+        cooldownSec,
         entry: { ...toPublic(entry), visibility },
       },
       201,
