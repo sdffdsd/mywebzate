@@ -7,7 +7,7 @@
  *
  * 画法（全部在浏览器里现算，没有任何图片 / 字体 / 音频文件）：
  *   1. 把视口切成等宽字符网格（列宽 = 实测字宽，所以网格严格对齐）。
- *   2. 画面分三段：天空（星云 / 星 / 一轮月）→ 流星带 → 海面。
+ *   2. 画面分三段：天空（星云 / 星 / 一轮月或日 / 热气球 / 鸟群）→ 流星带 → 海面。
  *      中间那段流星带就是天与海之间新长出来的过渡：一个个字符从带顶落向
  *      地平线，进场时慢慢亮起来，中段最亮，再一路暗下去熄灭。
  *   3. 整片天空连同星和月一起向左缓慢漂移，越「近」的天体走得越快，
@@ -17,9 +17,11 @@
  *      白天（06:00–18:00）太阳走同一条轨道，天光亮起来、星星星云流星一起退场。
  *      两者在 06:00 / 18:00 都贴着地平线，所以是同一套坐标算出来的，接得上。
  *      ?t=HH:MM 可以覆盖本地时间，方便对时。
- *   4. 每帧给每个格子算一个「亮度 + 色相 + 饱和度」，分八层叠加：
+ *   4. 每帧给每个格子算一个「亮度 + 色相 + 饱和度」，分九层叠加：
  *        白天的天光 → 星云 → 流星带的雾 → 流星 → 星 → 月/日 → 地平线光带
- *        → 海面（透视压缩的浪 + 日月碎成的一条路）
+ *        → 海面（透视压缩的浪 + 日月碎成的一条路）→ 热气球与鸟群
+ *      最后一层走的是**强制覆盖**通道（亮度存成负数）：鸟是逆光的剪影，
+ *      比亮天更暗，用「取最大值」的常规通道会被天整个吃掉。
  *   5. 亮度决定字形（ASCII 密度阶梯，或 0/1 的有序抖动）与颜色深浅。
  *
  * 上一版这里的「噪音」全部删掉了：
@@ -229,8 +231,9 @@ const description =
         display: block;
         width: 100%;
         height: auto;
-        /* 保留原来那层冷光：画布本身画不出 text-shadow，用 drop-shadow 顶上 */
-        filter: drop-shadow(0 0 16px rgba(120, 220, 255, 0.38))
+        /* 保留原来那层冷光：画布本身画不出 text-shadow，用 drop-shadow 顶上。
+           白天标题换成深蓝，这层青光要跟着退掉（--title-glow 由 JS 写）。 */
+        filter: drop-shadow(0 0 16px rgba(120, 220, 255, var(--title-glow, 0.38)))
           drop-shadow(0 2px 18px rgba(0, 0, 0, 0.85));
       }
 
@@ -510,6 +513,12 @@ const description =
     </div>
 
     <script>
+      /* 白天进度（0 = 夜，1 = 正午）。
+         标题是另一块画布、单独绘制的，靠下面这个回调把进度喂进去 ——
+         天亮之后标题必须从浅青换成深蓝，否则浅字压在亮天上直接糊掉。 */
+      let titleDayness = 0;
+      let titleRedraw: ((d: number) => void) | null = null;
+
       /* ============================================================
          标题：像素字（和背景星海无关，先单独跑完）
          ------------------------------------------------------------
@@ -594,14 +603,25 @@ const description =
 
         let drawnW = 0;
         let drawnDpr = 0;
+        let drawnTone = -1;
 
-        const drawTitle = () => {
+        /** 两个 #rrggbb 按 t 混合 */
+        const mixHex = (a: string, b: string, t: number) => {
+          const pa = parseInt(a.slice(1), 16);
+          const pb = parseInt(b.slice(1), 16);
+          const ch = (sh: number) =>
+            Math.round(((pa >> sh) & 255) * (1 - t) + ((pb >> sh) & 255) * t);
+          return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
+        };
+
+        const drawTitle = (tone = 0) => {
           if (!canvas || !host) return;
           const cssW = Math.round(host.clientWidth);
           const dpr = Math.min(window.devicePixelRatio || 1, 2);
-          if (cssW < 60 || (cssW === drawnW && dpr === drawnDpr)) return;
+          if (cssW < 60 || (cssW === drawnW && dpr === drawnDpr && tone === drawnTone)) return;
           drawnW = cssW;
           drawnDpr = dpr;
+          drawnTone = tone;
 
           const cell = cssW / COLS;
           const cssH = cell * ROWS;
@@ -615,11 +635,13 @@ const description =
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
           ctx.clearRect(0, 0, cssW, cssH);
 
-          /* 左上最亮、右下收暗：和页面里「月亮在左上」的打光方向一致 */
+          /* 左上最亮、右下收暗。夜里是浅青（深底上发亮），白天换成很深的藏蓝 ——
+             亮天上再放浅青会糊成一片；而白天这套必须**压得够深**，
+             因为底色抬亮之后，稍浅一点的蓝就落到和天差不多的亮度上去了。 */
           const grad = ctx.createLinearGradient(0, 0, cssW, cssH);
-          grad.addColorStop(0, '#eaf9ff');
-          grad.addColorStop(0.5, '#9adcff');
-          grad.addColorStop(1, '#4f9fc8');
+          grad.addColorStop(0, mixHex('#eaf9ff', '#061a2c', tone));
+          grad.addColorStop(0.5, mixHex('#9adcff', '#0b2f4a', tone));
+          grad.addColorStop(1, mixHex('#4f9fc8', '#104566', tone));
           ctx.fillStyle = grad;
 
           const radius = Math.max(0.5, cell * 0.12);
@@ -650,12 +672,19 @@ const description =
         };
 
         if (canvas && host) {
-          drawTitle();
+          let curTone = 0;
+          const redraw = () => drawTitle(curTone);
+          redraw();
           if ('ResizeObserver' in window) {
-            new ResizeObserver(() => drawTitle()).observe(host);
+            new ResizeObserver(redraw).observe(host);
           } else {
-            window.addEventListener('resize', () => drawTitle(), { passive: true });
+            window.addEventListener('resize', redraw, { passive: true });
           }
+          /* 把重画入口交给主脚本：白天进度跨过一档才真的重画（drawTitle 自己会挡掉） */
+          titleRedraw = (d: number) => {
+            curTone = Math.pow(Math.min(1, Math.max(0, d)), 0.75);
+            redraw();
+          };
         }
       }
 
@@ -719,14 +748,47 @@ const description =
          大气越靠近地平线越厚，真实的白昼也是那一带最白。
          dayness 用 sin^0.55 而不是 sin：一次方在 07:00 才爬到 0.26，
          天迟迟不亮；压到 0.55 之后 07:00 已经有 0.5，天亮得快、黄昏暗得也快。
-
-         亮度刻意停在「深色白天」这一档（地平线约 0.9、天顶约 0.18 的字符密度），
-         不往正午的刺白走：这一页的文字（标题、面板、页脚）全是按深底设计的，
-         真拉到全白，标题那圈暗色晕罩就会变成一块突兀的黑斑。
          ============================================================ */
-      const DAY_ZENITH = 0.24;
-      const DAY_HORIZON = 0.82;
       const DAY_CURVE = 0.55;
+
+      /* ------------------------------------------------------------
+         白天的配色（定档：更亮更暖）
+         ------------------------------------------------------------
+         天顶偏深的蓝、地平线转暖白，海面抬亮并往青里偏。
+         两点是调出来的、不是拍的：
+           · 地平线的暖白要**先把饱和度褪掉再染暖**（见 warmBlend）——
+             蓝色相直接插到暖色相会从绿色穿过去。
+           · 字符底下必须垫一层真正的底色：一个等宽字符只覆盖格子三成左右，
+             全画到最亮感知也只有 80/255，那是阴天不是白天。
+         ------------------------------------------------------------ */
+      const DAY_TONE = {
+        zen: 0.6, // 天顶的字符亮度
+        hor: 1.2, // 地平线的字符亮度
+        hueTop: 0.572, // 天顶色相（偏深的蓝）
+        hueBot: 0.51, // 地平线色相（青蓝，再靠 warmBlend 转暖白）
+        satTop: 0.66,
+        satBot: 0.4,
+        warm: 0.92, // 地平线往暖里偏多少
+        sea: 2.5, // 海面整体抬亮的倍数
+        seaWarm: 0.6, // 海面往暖里偏多少
+        fill: 0.85, // 底色渐变的透明度（0 = 不垫）
+        fillTop: '#1a63ad', // 底色：天顶
+        fillBot: '#cfd2c8', // 底色：地平线（暖白）
+        seaDeep: '#1a4d6b', // 海面底色的最深处
+        titleDark: 1, // 标题跟着转深藏蓝
+      };
+      /* 大气（雾带、地平线光带）的亮度跟着白天配色一起抬。
+         1.06 = 原先那一档的天顶 + 地平线总量，用来把倍率归一到 1。 */
+      const DAY_GAIN = (DAY_TONE.zen + DAY_TONE.hor) / 1.06;
+
+      /** 蓝 → 暖白，返回 [色相, 饱和度]。
+          直接插色相会从绿色穿过去（198° → 34° 中间是 115° 的黄绿），
+          所以分两段走：先把蓝褪成灰（色相不动、饱和度归零），再给灰染上暖。
+          交接点上饱和度正好是 0，色相怎么跳都看不出来。 */
+      const warmBlend = (hueBase: number, satBase: number, w: number): [number, number] =>
+        w <= 0.5
+          ? [hueBase, satBase * (1 - w * 2)]
+          : [lerp(hueBase, 0.095, (w - 0.5) * 2), 0.22 * (w - 0.5) * 2];
 
       /* 画面三段的分界（占视口高度的比例）：天空 → 流星带 → 海面。
          中间这段就是新长出来的「背景长度」：天和海不再硬碰硬地接在一起，
@@ -834,6 +896,34 @@ const description =
         sat: number;
       }
 
+      /** 一只热气球：球体 + 收颈 + 吊篮，整体极慢地横移，偶尔上下浮一点 */
+      interface Balloon {
+        x: number;
+        y: number;
+        r: number;
+        speed: number;
+        hue: number;
+        hue2: number;
+        bob: number;
+      }
+
+      /** 鸟群里的一只鸟：相对群心的偏移 + 扇翅相位 */
+      interface Bird {
+        dx: number;
+        dy: number;
+        phase: number;
+        flap: number;
+      }
+
+      /** 一群鸟：整体横移，队形是松散的 V（一只领头，两侧依次排开） */
+      interface Flock {
+        x: number;
+        y: number;
+        speed: number;
+        bob: number;
+        birds: Bird[];
+      }
+
       const canvas = document.getElementById('field') as HTMLCanvasElement | null;
       const ctx = canvas?.getContext('2d', { alpha: true }) ?? null;
       const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -852,6 +942,8 @@ const description =
       let satBuf = new Float32Array(0);
       let stars: Star[] = [];
       let meteors: Meteor[] = [];
+      let balloons: Balloon[] = [];
+      let flocks: Flock[] = [];
       let moonR = 4;
       let mode: Mode = 'ascii';
 
@@ -861,6 +953,13 @@ const description =
       let frameCount = 0;
       /* 标题晕罩的当前不透明度，用来避免每帧重复写 CSS 变量 */
       let lastHalo = -1;
+      /* 白天的底色渐变：drawScene 写、render 读。
+         字符画的亮度天花板只有 80/255 上下，白天要真的亮，只能在字符底下垫一层。 */
+      let dayFillAlpha = 0;
+      let dayFillTop = '#000000';
+      let dayFillBot = '#000000';
+      let dayFillSeaTop = '#000000';
+      let dayFillSeaDeep = '#000000';
 
       const plot = (x: number, y: number, b: number, h: number, s: number) => {
         if (!(x >= 0 && y >= 0 && x < cols && y < rows)) return;
@@ -869,6 +968,65 @@ const description =
         intensity[idx] = b;
         hueBuf[idx] = h;
         satBuf[idx] = s;
+      };
+
+      /**
+       * 强制覆盖地画一格：亮度存成**负数**，render 里认这个符号。
+       * 为什么需要它：plot 是「取最大值」，所以只有比背景更亮的东西才画得上去。
+       * 而逆光的鸟剪影是**比亮天更暗**的 —— 用 plot 会被天整个吃掉。
+       * 热气球也用它：不然球面上稍暗的那几格会被天光噪声咬出洞。
+       */
+      const plotOver = (x: number, y: number, b: number, h: number, s: number) => {
+        if (!(x >= 0 && y >= 0 && x < cols && y < rows)) return;
+        const idx = y * cols + x;
+        intensity[idx] = -b;
+        hueBuf[idx] = h;
+        satBuf[idx] = s;
+      };
+
+      /**
+       * 一个热气球：上宽下窄的球体 + 收颈 + 吊索 + 吊篮，全部按格现算。
+       * 球体的纵向半径要**除以 aspect** —— 字符格是 7.2×12 的长方形，
+       * 不补这一下，画出来会是一根竖着的长条，不是圆球。
+       */
+      const drawBalloon = (
+        cx: number,
+        cy: number,
+        r: number,
+        hue: number,
+        hue2: number,
+        alpha: number,
+      ) => {
+        const bodyH = r / Math.max(1, aspect);
+        const x0 = Math.floor(cx - r - 1);
+        const x1 = Math.ceil(cx + r + 1);
+        const y0 = Math.floor(cy - bodyH - 1);
+        const y1 = Math.ceil(cy + bodyH * 2.2 + 1);
+        for (let y = y0; y <= y1; y += 1) {
+          const v = (y - cy) / bodyH;
+          for (let x = x0; x <= x1; x += 1) {
+            const u = (x - cx) / r;
+            // 球体：越往下越收（v^1.6），到颈部收成一个口
+            const shrink = 1 - 0.44 * Math.pow(Math.max(0, v), 1.6);
+            if (v >= -1 && v <= 1 && Math.abs(u) <= shrink) {
+              const d = Math.hypot(u / Math.max(0.2, shrink), v);
+              // 竖条纹 = 气球的分瓣；边缘收一圈暗，圆盘才有体积感
+              const rim = smoothstep(1, 0.7, d);
+              const lit = 0.5 + 0.42 * (1 - Math.abs(u) * 0.55) * (1 - Math.max(0, v) * 0.3);
+              const stripe = Math.sin(u * 4.4 + 0.7) > 0 ? hue2 : hue;
+              plotOver(x, y, clamp(lit * rim * alpha, 0, 1), stripe, 0.6);
+              continue;
+            }
+            // 收颈 → 吊索 → 吊篮
+            const neck = Math.abs(u) < 0.15 && v > 1 && v < 1.28;
+            const rope = Math.abs(Math.abs(u) - 0.2) < 0.07 && v >= 1.28 && v <= 1.5;
+            const basket = Math.abs(u) < 0.28 && v > 1.5 && v < 2.05;
+            if (neck || rope || basket) {
+              const b = (basket ? 0.62 : neck ? 0.5 : 0.38) * alpha;
+              plotOver(x, y, b, 0.09, 0.52);
+            }
+          }
+        }
       };
 
       /** 星星只在初始化时撒一次，横向位置交给漂移，之后不动的只有它们的呼吸。 */
@@ -907,6 +1065,54 @@ const description =
             gain: 0.76 + Math.random() * 0.34,
             hue: warm ? 0.08 + Math.random() * 0.05 : 0.5 + Math.random() * 0.1,
             sat: warm ? 0.5 : 0.14 + Math.random() * 0.3,
+          });
+        }
+      };
+
+      /** 热气球：白天才放出来，数量很少 —— 天上飘十几个气球就成了游乐园 */
+      const buildBalloons = () => {
+        balloons = [];
+        const count = Math.round(clamp(cols * 0.014, 2, 4));
+        for (let i = 0; i < count; i += 1) {
+          const warm = Math.random() < 0.72;
+          balloons.push({
+            x: Math.random() * cols,
+            y: bandTop * (0.2 + Math.random() * 0.42),
+            r: Math.max(2.6, cols * 0.019) * (0.82 + Math.random() * 0.42),
+            // 每秒走多少列：横穿一屏要几分钟 —— 气球本来就是慢慢飘的
+            speed: (0.7 + Math.random() * 0.6) * cols * 0.004,
+            hue: warm ? 0.015 + Math.random() * 0.055 : 0.54 + Math.random() * 0.07,
+            hue2: warm ? 0.11 + Math.random() * 0.04 : 0.09,
+            bob: Math.random() * TAU,
+          });
+        }
+      };
+
+      /** 鸟群：几群，每群排成一个松散的 V —— 一只领头，两侧依次拉开 */
+      const buildFlocks = () => {
+        flocks = [];
+        const count = Math.round(clamp(cols * 0.011, 1, 3));
+        for (let i = 0; i < count; i += 1) {
+          const n = 5 + Math.floor(Math.random() * 5);
+          const birds: Bird[] = [];
+          for (let k = 0; k < n; k += 1) {
+            const side = k % 2 === 0 ? -1 : 1;
+            const rank = Math.floor(k / 2) + 1;
+            birds.push({
+              // 间距要够开：一只鸟本身就占三格，挤在一起会糊成一团黑
+              dx: side * rank * (1.7 + Math.random() * 0.9),
+              dy: rank * (0.8 + Math.random() * 0.5) + (Math.random() - 0.5) * 0.6,
+              phase: Math.random() * TAU,
+              flap: 3.4 + Math.random() * 2.4, // 扇翅快慢，每只略不同才不像复制品
+            });
+          }
+          flocks.push({
+            x: Math.random() * cols,
+            y: bandTop * (0.1 + Math.random() * 0.52),
+            // 比气球快得多：鸟要看出「在飞」，气球只要看出「在飘」
+            speed: (0.9 + Math.random() * 0.7) * cols * 0.017,
+            bob: Math.random() * TAU,
+            birds,
           });
         }
       };
@@ -965,6 +1171,8 @@ const description =
 
         buildStars();
         buildMeteors();
+        buildBalloons();
+        buildFlocks();
       };
 
       /** 把这一帧的「星海」写进 intensity / hue / sat 三个缓冲 */
@@ -1016,21 +1224,44 @@ const description =
         /* 星星、星云、流星按天光一起退场 */
         const nightGain = 1 - dayness;
 
-        /* 标题那圈暗色晕罩白天要淡下来：天亮了，罩子还是 0.93 就成一块突兀的黑斑。
-           只在变化超过 0.02 时才写 CSS 变量 —— 每帧写会白白触发样式重算。 */
-        const haloAlpha = 0.93 - 0.31 * dayness;
+        /* 底色渐变：透明度跟着 dayness 走，夜里是 0（等于没垫） */
+        dayFillAlpha = DAY_TONE.fill * dayness;
+        dayFillTop = DAY_TONE.fillTop;
+        dayFillBot = DAY_TONE.fillBot;
+        /* 海面顶上接住地平线的颜色（那一片在反射天光），往下压到 seaDeep */
+        dayFillSeaTop = DAY_TONE.fillBot;
+        dayFillSeaDeep = DAY_TONE.seaDeep;
+
+        /* 标题那圈暗色晕罩：白天要淡到没有。
+           天亮之后标题自己换成了深蓝，再压一层黑罩反而是把对比度拉低 ——
+           深字配亮天本来就清楚，罩子该退场。只在变化超过 0.02 时才写 CSS 变量。 */
+        const toneDark = smoothstep(0.1, 0.55, dayness) * DAY_TONE.titleDark;
+        const haloAlpha = 0.93 * (1 - toneDark);
+        const titleGlow = 0.38 * (1 - 0.9 * toneDark);
         if (Math.abs(haloAlpha - lastHalo) > 0.02) {
           lastHalo = haloAlpha;
-          document.documentElement.style.setProperty('--halo', haloAlpha.toFixed(3));
+          const root = document.documentElement.style;
+          root.setProperty('--halo', haloAlpha.toFixed(3));
+          root.setProperty('--title-glow', titleGlow.toFixed(3));
         }
+        /* 标题配色跟着白天走；跨过一档才会真的重画（titleRedraw 内部会挡掉） */
+        titleRedraw?.(toneDark);
 
         /* ---------- 0) 白天的天光：先把天铺亮，后面几层再叠上去 ----------
            夜里 dayness = 0，这一段整块跳过，代价为零。 */
         if (dayness > 0.004) {
           for (let y = 0; y < bandTop; y += 1) {
             const v = y / Math.max(1, bandTop); // 0 天顶 → 1 地平线
-            const base = dayness * (DAY_ZENITH + DAY_HORIZON * Math.pow(v, 1.2));
+            const base = dayness * (DAY_TONE.zen + DAY_TONE.hor * Math.pow(v, 1.2));
             if (base <= 0.02) continue;
+            /* 地平线那一带往暖白偏：真实白昼的地平线是被大气染过的暖色。
+               色相怎么走由 warmBlend 管（不能直接插值，会从绿色穿过去）。 */
+            const warmAmt = DAY_TONE.warm * smoothstep(0.3, 1, v);
+            const [hueWarm, satWarm] = warmBlend(
+              lerp(DAY_TONE.hueTop, DAY_TONE.hueBot, v),
+              lerp(DAY_TONE.satTop, DAY_TONE.satBot, v),
+              warmAmt,
+            );
             for (let x = 0; x < cols; x += 1) {
               const idx = y * cols + x;
               /* 太阳周围把天光本身抬起来，而不是画一个硬边光晕 ——
@@ -1042,12 +1273,16 @@ const description =
               /* 再叠一层低频：白天要是只有一层细颗粒，天就成了一张均匀的网。
                  这一层频率低得多，起伏就是「云的块」。 */
               const n2 = valueNoise(x * 0.011 + 21.3, y * 0.018 + 9.4);
-              const b = base * (0.7 + 0.28 * n + 0.36 * n2) + dayness * 0.3 * halo;
+              /* 还要撒一点**逐格**的抖动。天光本身是平滑的，但字符是按亮度挑的 ——
+                 平滑的梯度会让同一行每格都挑到同一种字，几十行叠起来就是一道道横纹
+                 （看着像扫描线）。逐格抖一下把行打断，纹理才是散开的。 */
+              const jitter = (hash2(x * 7 + 3, y * 11 + 5) - 0.5) * 0.22;
+              const b = base * (0.7 + 0.28 * n + 0.36 * n2) + dayness * 0.3 * halo + jitter;
               if (b <= intensity[idx]) continue;
               intensity[idx] = b;
-              // 天顶偏深蓝、地平线偏青白；太阳附近往暖里偏
-              hueBuf[idx] = lerp(0.6, 0.55, v) - halo * 0.07 + (n2 - 0.5) * 0.03;
-              satBuf[idx] = lerp(0.58, 0.3, v) - halo * 0.16;
+              // 太阳附近再往暖里偏一点
+              hueBuf[idx] = hueWarm - halo * 0.07 + (n2 - 0.5) * 0.03;
+              satBuf[idx] = satWarm - halo * 0.16;
             }
           }
         }
@@ -1080,18 +1315,22 @@ const description =
           const v = (y - bandTop) / Math.max(1, horizon - bandTop); // 0 = 带顶，1 = 地平线
           // 白天这一段跟着天光一起亮：它本来就是「大气的厚度」，天亮它就该亮
           const mist =
-            (0.03 + 0.13 * Math.pow(v, 1.5)) * 0.9 + dayness * 0.36 * Math.pow(v, 1.1);
+            (0.03 + 0.13 * Math.pow(v, 1.5)) * 0.9 +
+            dayness * DAY_GAIN * 0.36 * Math.pow(v, 1.1);
           const ny = y * 0.05;
+          /* 从上到下由紫转青：接住上面的星云，也接住下面的地平线。
+             白天整段往天光那支蓝里靠，越贴近地平线越暖（warmBlend 管色相路径）。 */
+          const warmAmt = DAY_TONE.warm * smoothstep(0.25, 1, v);
+          const [dayHue, daySat] = warmBlend(0.565, 0.38, warmAmt);
+          const mistHue = lerp(lerp(0.72, 0.545, v), dayHue, dayness * 0.8);
+          const mistSat = lerp(0.52, daySat, dayness);
           for (let x = 0; x < cols; x += 1) {
             const nx = (x + drift * 0.3) * 0.021;
             const n =
               valueNoise(nx, ny + 3.3) * 0.62 + valueNoise(nx * 2.1 + 9.7, ny * 2.2) * 0.38;
             const b = mist * (0.35 + 1.05 * n);
             if (b <= 0.012) continue;
-            // 从上到下由紫转青：接住上面的星云，也接住下面的地平线
-            // 夜里从上到下由紫转青；白天整段往天光那支蓝里靠
-            const mistHue = lerp(0.72, 0.545, v);
-            plot(x, y, b, lerp(mistHue, 0.565, dayness * 0.75), lerp(0.52, 0.38, dayness));
+            plot(x, y, b, mistHue, mistSat);
           }
         }
 
@@ -1204,10 +1443,13 @@ const description =
           const g = Math.exp(-Math.pow((y - horizon - 0.2) / 0.95, 2));
           if (g < 0.01) continue;
           const above = clamp((horizon - y) / 5, 0, 1);
-          // 白天这条光带跟着天光一起抬起来，并往青白偏 —— 夜里那条是冷青的
-          const glow = g * lerp(0.66, 0.36, above) + g * dayness * 0.36;
-          const h = lerp(lerp(0.505, 0.77, above * 0.85), 0.575, dayness * 0.7);
-          const s = lerp(lerp(0.42, 0.56, above), 0.34, dayness);
+          /* 白天这条光带跟着天光一起抬起来，并往暖白偏 —— 夜里那条是冷青的。
+             暖白同样要先把饱和度压掉，不然色相从青走到暖会经过绿色。 */
+          const glow = g * lerp(0.66, 0.36, above) + g * dayness * DAY_GAIN * 0.2;
+          const nightH = lerp(0.505, 0.77, above * 0.85);
+          const [dayH, dayS] = warmBlend(0.565, 0.34, DAY_TONE.warm);
+          const h = lerp(nightH, dayH, dayness * 0.8);
+          const s = lerp(lerp(0.42, 0.56, above), dayS, dayness);
           for (let x = 0; x < cols; x += 1) {
             // 沿线明暗不均，才像一条被水汽切碎的光，而不是拿尺子画的一根亮线
             const mod =
@@ -1234,9 +1476,13 @@ const description =
           // 浪与浪之间的水面压得很暗：对比度越高，越像一片有深度的水
           const band =
             (0.02 + 0.26 * haze) * (0.75 + 0.25 * Math.sin(v * 9 - t * 0.45)) * (1 - 0.5 * near) +
-            dayness * (0.13 + 0.24 * haze); // 白天整片水面抬亮：亮天配黑海，反差会假
-          const rowHue = lerp(0.5 + 0.105 * near, 0.565, dayness * 0.65); // 近处的蓝更深
-          const rowSat = lerp(0.34 + 0.3 * near, 0.3, dayness * 0.6); // 近处更饱和，远处更灰
+            dayness * DAY_TONE.sea * (0.13 + 0.24 * haze); // 白天整片水面抬亮：亮天配黑海，反差会假
+          const rowHue = lerp(0.5 + 0.105 * near, 0.552, dayness * 0.65); // 近处的蓝更深
+          const rowSat = lerp(
+            0.34 + 0.3 * near,
+            lerp(0.3, 0.22, DAY_TONE.seaWarm),
+            dayness * 0.6,
+          ); // 近处更饱和，远处更灰；白天再退一点饱和，才像被阳光晒过的水
           const spread = 4 + 28 * near; // 那条光路越近越宽
           // 浪尖：近处又亮又宽；远处淡到只剩雾，免得高频波纹在远处糊成噪点
           const crestGain = (0.25 + 0.78 * near) * smoothstep(0, 0.28, v);
@@ -1293,6 +1539,39 @@ const description =
             satBuf[idx] = s;
           }
         }
+
+        /* ---------- 8) 热气球与鸟群：白天才出来的活物 ----------
+           放在最后画，因为它们走的是**强制覆盖**通道（见 plotOver）：
+           鸟是逆光的剪影，比亮天更暗，用取最大值的 plot 会被天整个吃掉。
+           两者都只在白天出现 —— 夜里 life 归零，整段跳过，代价为零。 */
+        const life = smoothstep(0.1, 0.42, dayness);
+        if (life > 0.01) {
+          for (let i = 0; i < balloons.length; i += 1) {
+            const bl = balloons[i];
+            const pad = bl.r * 4; // 两端留出余量，好让它整个飘出去再绕回来
+            const bx = wrap(bl.x - t * bl.speed + pad, cols + pad * 2) - pad;
+            const by = bl.y + Math.sin(t * 0.24 + bl.bob) * 1.6;
+            drawBalloon(bx, by, bl.r, bl.hue, bl.hue2, life);
+          }
+          for (let i = 0; i < flocks.length; i += 1) {
+            const f = flocks[i];
+            const fx = wrap(f.x - t * f.speed + 20, cols + 40) - 20;
+            const fy = f.y + Math.sin(t * 0.33 + f.bob) * 1.4;
+            for (let k = 0; k < f.birds.length; k += 1) {
+              const bd = f.birds[k];
+              const wing = Math.sin(t * bd.flap + bd.phase);
+              const bx = Math.round(fx + bd.dx);
+              const by = Math.round(fy + bd.dy + Math.sin(t * 1.1 + bd.phase) * 0.7);
+              const lift = Math.round(wing * 1.2);
+              /* 逆光剪影：亮度压到 0.4 上下（→ 疏的字形 + 低明度），饱和度也低。
+                 第一版给到 0.6，结果只比天暗一点点，飞过去几乎看不见 ——
+                 剪影要暗得干脆，哪怕字形稀一点。 */
+              plotOver(bx - 1, by + lift, 0.38 * life, 0.58, 0.2);
+              plotOver(bx + 1, by + lift, 0.38 * life, 0.58, 0.2);
+              plotOver(bx, by, 0.48 * life, 0.58, 0.2);
+            }
+          }
+        }
       };
 
       const hueIdx = (h: number) => {
@@ -1307,6 +1586,33 @@ const description =
 
         ctx.clearRect(0, 0, W, H);
 
+        /* 白天先在天空和海面底下垫一层渐变。
+           一个等宽字符只覆盖格子三成左右，全画到最亮感知也只有 80/255 ——
+           那是阴天不是白天。垫上这层之后字符退成底色上的纹理，天和海才是亮的。
+           天空：天顶深、地平线亮；海面：贴着地平线最亮（反射天光），往下压深。 */
+        if (dayFillAlpha > 0.004) {
+          const skyPx = Math.max(1, horizon * cellH);
+          const g = ctx.createLinearGradient(0, 0, 0, skyPx);
+          g.addColorStop(0, dayFillTop);
+          g.addColorStop(Math.min(0.95, bandTop / Math.max(1, horizon)), dayFillBot);
+          g.addColorStop(1, dayFillBot);
+          ctx.globalAlpha = dayFillAlpha;
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, W, skyPx);
+
+          /* 海面也垫一层：贴着地平线最亮（那一片在反射天光），往下压深 ——
+             近处的水本来就比远处暗。不垫的话，亮天配黑海会很假。 */
+          const seaTop = Math.max(0, Math.min(H - 1, Math.floor(horizon * cellH)));
+          const g2 = ctx.createLinearGradient(0, seaTop, 0, H);
+          g2.addColorStop(0, dayFillSeaTop);
+          g2.addColorStop(0.16, dayFillSeaDeep);
+          g2.addColorStop(1, dayFillSeaDeep);
+          ctx.globalAlpha = dayFillAlpha * 0.72;
+          ctx.fillStyle = g2;
+          ctx.fillRect(0, seaTop, W, H - seaTop);
+          ctx.globalAlpha = 1;
+        }
+
         const ramp = RAMPS[mode];
         const lastChar = ramp.length - 1;
         const binary = mode === 'binary';
@@ -1317,6 +1623,8 @@ const description =
           for (let x = 0; x < cols; x += 1) {
             const idx = rowBase + x;
             let b = intensity[idx];
+            // 负数 = 强制覆盖（热气球 / 鸟剪影），取绝对值，后面的逻辑一律不用改
+            if (b < 0) b = -b;
 
             let ch: string;
             let lit: number;
