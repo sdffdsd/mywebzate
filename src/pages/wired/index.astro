@@ -70,6 +70,12 @@ const description =
     <meta property="og:description" content={description} />
     {canonical && <meta property="og:url" content={canonical} />}
 
+    <!-- 分段显影的开关。必须在样式之前、且在首次绘制之前跑掉，
+         否则界面会先露一帧再被藏起来（闪一下）。
+         写成 is:inline 是为了不被 Astro 打包 —— 它要立刻执行。
+         没有 JS 时这一句不执行，is-boot 就不会出现，内容照常可见。 -->
+    <script is:inline>document.documentElement.classList.add('is-boot');</script>
+
     <style is:inline>
       /* ============================================================
          设计令牌：一套「深夜海面」的配色。
@@ -198,14 +204,18 @@ const description =
         width: 100%;
         max-width: 46rem;
         padding: 3rem clamp(1.75rem, 6vw, 3.25rem);
-        /* 一团柔和的暗色晕圈：压住背后的字符，保证文字始终读得清。
+        /* 一团柔和的暗色晕圈：压住背后的天，保证文字始终读得清。
            它不是边框也不是卡片，所以看起来仍然像「字浮在星海上」。
-           字符网格加密之后星星多了，所以这里把过渡拉得更长、更平 ——
-           否则在密星里会看出一个椭圆形的「洞」。
-           白天 JS 会把 --halo 调低（0.93 → 0.62）：天亮了罩子还这么黑就成了黑斑，
-           但也不能再低 —— 标题最暗的那支是 #4f9fc8，底下亮过 90 就压不住了。 */
+
+           ⚠️ 这里写死了 `ellipse 50% 50%`，不能用默认的 farthest-corner。
+           默认的椭圆会一直伸到**盒子外面**，于是盒子边缘那几像素的透明度还没
+           降到 0，背景一到盒子边界就硬生生截断 —— 天上有字符的时候看不出来，
+           天空改成纯色之后，标题周围就会浮出一个**可见的方块**。
+           50% 50% 让 100% 那条等值线正好落在盒子四边的中点上，
+           再往外（四个角）都是最后那一档的透明，边缘自然收干净。
+           盒子本身比标题宽（736 vs 544），所以标题两端仍然拿得到约 0.2 的晕。 */
         background: radial-gradient(
-          ellipse at center,
+          ellipse 50% 50% at center,
           rgba(3, 6, 14, var(--halo, 0.93)) 0%,
           rgba(3, 6, 14, calc(var(--halo, 0.93) * 0.8)) 34%,
           rgba(3, 6, 14, calc(var(--halo, 0.93) * 0.43)) 58%,
@@ -440,6 +450,63 @@ const description =
       .foot button:hover {
         color: var(--cyan);
         border-color: var(--cyan);
+      }
+
+      /* ============================================================
+         分段显影：进来时先只给背景（画布 + 这层 CSS 渐变），
+         等第一帧字符画落地，再把标题、字集开关、正文、页脚依次浮上来。
+         ------------------------------------------------------------
+         is-boot 这个类是**内联脚本**加的（见 <head>），不是写死在 HTML 里 ——
+         没有 JS 的时候它永远不会出现，内容照常可见，不会被动画挡在外面。
+         ============================================================ */
+      html.is-boot .hero__inner,
+      html.is-boot .seg,
+      html.is-boot main > *,
+      html.is-boot .foot {
+        opacity: 0;
+        transform: translateY(14px);
+      }
+
+      .hero__inner,
+      .seg,
+      main > *,
+      .foot {
+        transition:
+          opacity 560ms cubic-bezier(0.22, 0.8, 0.28, 1),
+          transform 560ms cubic-bezier(0.22, 0.8, 0.28, 1);
+      }
+
+      /* 依次浮上来：标题 → 字集 → 正文 → 页脚。
+         延迟写在**基础选择器**上，不是写在 .is-boot 那几条里 ——
+         过渡的 delay 取的是「属性发生变化」那一刻的计算值，
+         挂在 .is-boot 上会随着类被摘掉一起失效，全变成同时出现。 */
+      .hero__inner {
+        transition-delay: 0ms;
+      }
+
+      .seg {
+        transition-delay: 120ms;
+      }
+
+      main > :nth-child(1) {
+        transition-delay: 200ms;
+      }
+
+      main > :nth-child(2) {
+        transition-delay: 280ms;
+      }
+
+      .foot {
+        transition-delay: 360ms;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .hero__inner,
+        .seg,
+        main > *,
+        .foot {
+          transition: none;
+        }
       }
 
       @media (max-width: 640px) {
@@ -801,28 +868,23 @@ const description =
       /* ------------------------------------------------------------
          白天的配色（定档：更亮更暖）
          ------------------------------------------------------------
-         天顶偏深的蓝、地平线转暖白，海面抬亮并往青里偏。
+         天空是**一整片纯色渐变**，海面抬亮并往青里偏。
          两点是调出来的、不是拍的：
            · 地平线的暖白要**先把饱和度褪掉再染暖**（见 warmBlend）——
              蓝色相直接插到暖色相会从绿色穿过去。
-           · 字符底下必须垫一层真正的底色：一个等宽字符只覆盖格子三成左右，
-             全画到最亮感知也只有 80/255，那是阴天不是白天。
+           · 天空的渐变必须铺满铺实：橙色的亮度天生比暖白低，
+             同样的透明度铺上去会闷成一层灰褐色（见 skySolid 那条斜坡）。
          ------------------------------------------------------------ */
       const DAY_TONE = {
-        zen: 0.6, // 天顶的字符亮度
+        zen: 0.6, // 天顶的字符亮度（现在只喂给 toneGain）
         hor: 1.2, // 地平线的字符亮度
-        hueTop: 0.572, // 天顶色相（偏深的蓝）
-        hueBot: 0.51, // 地平线色相（青蓝，再靠 warmBlend 转暖白）
-        satTop: 0.66,
-        satBot: 0.4,
-        warm: 0.92, // 地平线往暖里偏多少
+        warm: 0.92, // 地平线光带往暖里偏多少
         warmHue: 0.095, // 暖的那一头落在哪个色相（0.095 ≈ 34°，橙）
         warmSat: 0.22, // 暖的那一头最高能给到多少饱和度
         sea: 2.5, // 海面整体抬亮的倍数
         seaWarm: 0.6, // 海面往暖里偏多少
-        fill: 0.85, // 底色渐变的透明度（0 = 不垫）
-        fillTop: '#1a63ad', // 底色：天顶
-        fillBot: '#cfd2c8', // 底色：地平线（暖白）
+        fillTop: '#1a63ad', // 天空渐变：天顶（偏深的蓝）
+        fillBot: '#cfd2c8', // 天空渐变：地平线（暖白）
         seaDeep: '#1a4d6b', // 海面底色的最深处
         titleDark: 1, // 标题跟着转深藏蓝
       };
@@ -890,18 +952,13 @@ const description =
       const GOLD_TONE: Tone = {
         zen: 0.5, // 天顶压暗一点，落差才出得来
         hor: 1.5, // 地平线更亮：那是太阳沉下去的地方
-        hueTop: 0.655, // 天顶往靛紫里走（黄昏的头顶不是天蓝）
-        hueBot: 0.5,
-        satTop: 0.72,
-        satBot: 0.46,
         warm: 1, // 暖到顶
         warmHue: GOLD_WARM_HUE,
         warmSat: GOLD_WARM_SAT,
         sea: 2.9,
         seaWarm: 0.95,
-        fill: 0.85,
-        fillTop: '#2f3d7a', // 底色：天顶（靛）
-        fillBot: '#ffc684', // 底色：地平线（橙）
+        fillTop: '#2f3d7a', // 天空渐变：天顶（靛）
+        fillBot: '#ffc684', // 天空渐变：地平线（橙）
         seaDeep: '#2a2f4d', // 海面深处：紫蓝
         titleDark: 1,
       };
@@ -933,31 +990,19 @@ const description =
         return `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
       };
 
-      /** 色相从 a 沿**暖的那一边**走到 b，t ∈ [0, 1]。
-          蓝 0.60 → 橙 0.04 直接插会经过 0.32 ≈ 115°（绿）；
-          往暖的方向绕是 0.60 → 0.71（紫）→ 0.82（品红）→ 0.93（红）→ 1.04 = 0.04（橙），
-          正好就是真实日落天空的配色顺序。
-          返回值可能 > 1，hueIdx 自己会取小数部分，所以不用再绕回来。 */
-      const hueArcWarm = (a: number, b: number, t: number) => a + ((b - a + 1) % 1) * t;
-
       /** 这一帧实际用的配色。
           goldW ≤ 0.001 时**原样返回 DAY_TONE**（同一个对象引用），
-          所以不带 gold 参数时渲染结果与改动前逐位相同。 */
+          所以白天那一档的渲染结果与加黄金时刻之前逐位相同。 */
       const toneAt = (goldW: number): Tone => {
         if (goldW <= 0.001) return DAY_TONE;
         return {
           zen: lerp(DAY_TONE.zen, GOLD_TONE.zen, goldW),
           hor: lerp(DAY_TONE.hor, GOLD_TONE.hor, goldW),
-          hueTop: lerp(DAY_TONE.hueTop, GOLD_TONE.hueTop, goldW),
-          hueBot: lerp(DAY_TONE.hueBot, GOLD_TONE.hueBot, goldW),
-          satTop: lerp(DAY_TONE.satTop, GOLD_TONE.satTop, goldW),
-          satBot: lerp(DAY_TONE.satBot, GOLD_TONE.satBot, goldW),
           warm: lerp(DAY_TONE.warm, GOLD_TONE.warm, goldW),
           warmHue: lerp(DAY_TONE.warmHue, GOLD_TONE.warmHue, goldW),
           warmSat: lerp(DAY_TONE.warmSat, GOLD_TONE.warmSat, goldW),
           sea: lerp(DAY_TONE.sea, GOLD_TONE.sea, goldW),
           seaWarm: lerp(DAY_TONE.seaWarm, GOLD_TONE.seaWarm, goldW),
-          fill: DAY_TONE.fill,
           fillTop: mixHex(DAY_TONE.fillTop, GOLD_TONE.fillTop, goldW),
           fillBot: mixHex(DAY_TONE.fillBot, GOLD_TONE.fillBot, goldW),
           seaDeep: mixHex(DAY_TONE.seaDeep, GOLD_TONE.seaDeep, goldW),
@@ -1071,6 +1116,50 @@ const description =
         sat: number;
       }
 
+      /* ============================================================
+         热气球与帆船：**每一只都不一样**
+         ------------------------------------------------------------
+         第一版所有气球是同一个球型、所有帆船是同一套帆 —— 天上飘三只
+         一模一样的气球，海上走四条一模一样的船，一眼就看出来是复制品。
+         这里把「形状」和「花纹」拆成两个维度，初始化时各抽一次，
+         之后定死不动（逐帧随机就成了闪烁，那又是噪音）。
+
+         形状用参数描述而不是写四份画法：hMul 纵向拉伸、taper 往下收多少
+         （负数就是往下张，成梨形）、后面几个是收颈 / 吊索 / 吊篮的相对宽度。
+         帆船同理，hull / mast / main 都是相对船长 s 的倍数。
+         ============================================================ */
+      type BalloonKind = 'round' | 'tall' | 'pear' | 'squat';
+      type BalloonPattern = 'vstripe' | 'hstripe' | 'plain' | 'check' | 'crown';
+      type BoatKind = 'sloop' | 'square' | 'schooner' | 'dinghy';
+
+      const BALLOON_SHAPES: Record<
+        BalloonKind,
+        { hMul: number; taper: number; neckW: number; ropeW: number; basketW: number }
+      > = {
+        // 常见的那种：宽圆、往下收成一个口
+        round: { hMul: 1, taper: 0.44, neckW: 0.15, ropeW: 0.2, basketW: 0.28 },
+        // 细高，收得少 —— 远看像一颗立着的蛋
+        tall: { hMul: 1.34, taper: 0.24, neckW: 0.12, ropeW: 0.16, basketW: 0.22 },
+        // 梨形：下半截比赤道还宽，收口最急
+        pear: { hMul: 1.04, taper: -0.18, neckW: 0.2, ropeW: 0.27, basketW: 0.34 },
+        // 矮胖，赤道压得最低
+        squat: { hMul: 0.76, taper: 0.52, neckW: 0.18, ropeW: 0.25, basketW: 0.33 },
+      };
+
+      const BOAT_SHAPES: Record<
+        BoatKind,
+        { hull: number; depth: number; mast: number; main: number; jib: number; masts: number }
+      > = {
+        // 单桅 + 三角主帆 + 前帆（最经典的那条）
+        sloop: { hull: 1, depth: 0.62, mast: 2.2, main: 1.5, jib: 0.72, masts: 1 },
+        // 单桅方帆：一块上窄下宽的梯形，没有前帆
+        square: { hull: 1.06, depth: 0.58, mast: 2.5, main: 1.95, jib: 0, masts: 1 },
+        // 双桅：两根桅杆各挂一片三角帆，船身也长一些
+        schooner: { hull: 1.2, depth: 0.66, mast: 1.9, main: 1.05, jib: 0, masts: 2 },
+        // 小艇：船小、桅矮、只有一片小帆
+        dinghy: { hull: 0.74, depth: 0.7, mast: 1.65, main: 1.25, jib: 0, masts: 1 },
+      };
+
       /** 一只热气球：球体 + 收颈 + 吊篮，整体极慢地横移，偶尔上下浮一点 */
       interface Balloon {
         x: number;
@@ -1080,6 +1169,11 @@ const description =
         hue: number;
         hue2: number;
         bob: number;
+        kind: BalloonKind;
+        pattern: BalloonPattern;
+        /** 条纹疏密与相位：同一个花纹在不同气球上也不同 */
+        sf: number;
+        sp: number;
       }
 
       /** 鸟群里的一只鸟：相对群心的偏移 + 扇翅相位 */
@@ -1107,6 +1201,7 @@ const description =
         speed: number;
         dir: number;
         phase: number;
+        kind: BoatKind;
       }
 
       const canvas = document.getElementById('field') as HTMLCanvasElement | null;
@@ -1152,12 +1247,14 @@ const description =
       let dayFillMid: string | null = null;
       let dayFillDusk = '#000000';
       let dayFillHor = '#000000';
-      /* 黄金时刻那圈径向辉光的圆心（画布像素）与强度 */
+      /* 日头那圈径向辉光的圆心（画布像素）与强度 */
       let glowX = 0;
       let glowY = 0;
-      let goldGlow = 0;
+      let sunGlow = 0;
       /* 黄金时刻的「生效程度」= 强度 × 天已经亮了多少（0..1），渐变曲线用它 */
       let goldMix = 0;
+      /* 这一帧的黄金时刻强度，render() 画辉光配色时要用 */
+      let goldWNow = 0;
 
       const plot = (x: number, y: number, b: number, h: number, s: number) => {
         if (!(x >= 0 && y >= 0 && x < cols && y < rows)) return;
@@ -1187,38 +1284,53 @@ const description =
        * 球体的纵向半径要**除以 aspect** —— 字符格是 7.2×12 的长方形，
        * 不补这一下，画出来会是一根竖着的长条，不是圆球。
        */
-      const drawBalloon = (
-        cx: number,
-        cy: number,
-        r: number,
-        hue: number,
-        hue2: number,
-        alpha: number,
-      ) => {
-        const bodyH = r / Math.max(1, aspect);
+      /**
+       * 一只热气球：球体 + 收颈 + 吊索 + 吊篮。
+       * 球型与花纹都是**这一只自己的**（见 BALLOON_SHAPES 与 BalloonPattern），
+       * 所以天上飘三只不会像三胞胎。
+       * bodyH 要**除以 aspect** —— 字符格是 7.2×12 的长方形，
+       * 不补这一下球体会被拉成一根竖条。
+       */
+      const drawBalloon = (cx: number, cy: number, bl: Balloon, alpha: number) => {
+        const shape = BALLOON_SHAPES[bl.kind];
+        const r = bl.r;
+        const bodyH = (r / Math.max(1, aspect)) * shape.hMul;
         const x0 = Math.floor(cx - r - 1);
         const x1 = Math.ceil(cx + r + 1);
         const y0 = Math.floor(cy - bodyH - 1);
-        const y1 = Math.ceil(cy + bodyH * 2.2 + 1);
+        const y1 = Math.ceil(cy + bodyH * 2.3 + 1);
         for (let y = y0; y <= y1; y += 1) {
           const v = (y - cy) / bodyH;
           for (let x = x0; x <= x1; x += 1) {
             const u = (x - cx) / r;
-            // 球体：越往下越收（v^1.6），到颈部收成一个口
-            const shrink = 1 - 0.44 * Math.pow(Math.max(0, v), 1.6);
+            /* 球体轮廓：赤道最宽，往下按 taper 收。taper 为负就是往下**张**，
+               成了梨形。幂次 1.6 让收口集中在最下面几格，上半球几乎是个正圆。 */
+            const shrink = 1 - shape.taper * Math.pow(Math.max(0, v), 1.6);
             if (v >= -1 && v <= 1 && Math.abs(u) <= shrink) {
               const d = Math.hypot(u / Math.max(0.2, shrink), v);
-              // 竖条纹 = 气球的分瓣；边缘收一圈暗，圆盘才有体积感
-              const rim = smoothstep(1, 0.7, d);
+              const rim = smoothstep(1, 0.7, d); // 边缘收一圈暗，圆盘才有体积感
               const lit = 0.5 + 0.42 * (1 - Math.abs(u) * 0.55) * (1 - Math.max(0, v) * 0.3);
-              const stripe = Math.sin(u * 4.4 + 0.7) > 0 ? hue2 : hue;
-              plotOver(x, y, clamp(lit * rim * alpha, 0, 1), stripe, 0.6);
+              /* 花纹：分瓣 / 横带 / 棋盘 / 素色 / 顶冠。
+                 疏密（sf）和相位（sp）也是每只自己的，同一个花纹也不会撞。 */
+              let hue = bl.hue;
+              if (bl.pattern === 'hstripe') {
+                if (Math.sin(v * bl.sf + bl.sp) > 0) hue = bl.hue2;
+              } else if (bl.pattern === 'check') {
+                if (Math.sin(u * bl.sf + bl.sp) * Math.sin(v * bl.sf * 0.9 + bl.sp) > 0) {
+                  hue = bl.hue2;
+                }
+              } else if (bl.pattern === 'crown') {
+                if (v < -0.5) hue = bl.hue2; // 只有顶上那一圈是另一个颜色
+              } else if (bl.pattern !== 'plain') {
+                if (Math.sin(u * bl.sf + bl.sp) > 0) hue = bl.hue2;
+              }
+              plotOver(x, y, clamp(lit * rim * alpha, 0, 1), hue, 0.6);
               continue;
             }
-            // 收颈 → 吊索 → 吊篮
-            const neck = Math.abs(u) < 0.15 && v > 1 && v < 1.28;
-            const rope = Math.abs(Math.abs(u) - 0.2) < 0.07 && v >= 1.28 && v <= 1.5;
-            const basket = Math.abs(u) < 0.28 && v > 1.5 && v < 2.05;
+            // 收颈 → 吊索 → 吊篮（宽度跟着球型走：梨形的篮子也大一号）
+            const neck = Math.abs(u) < shape.neckW && v > 1 && v < 1.3;
+            const rope = Math.abs(Math.abs(u) - shape.ropeW) < 0.07 && v >= 1.3 && v <= 1.52;
+            const basket = Math.abs(u) < shape.basketW && v > 1.52 && v < 2.1;
             if (neck || rope || basket) {
               const b = (basket ? 0.62 : neck ? 0.5 : 0.38) * alpha;
               plotOver(x, y, b, 0.09, 0.52);
@@ -1228,10 +1340,11 @@ const description =
       };
 
       /**
-       * 一条帆船：船体 + 桅杆 + 主帆 + 前帆，全部按格现算。
+       * 一条帆船。船体 + 桅杆 + 帆，全部按格现算。
        * 纵向尺寸同样要**除以 aspect** —— 字符格是 7.2×12 的长方形，
        * 不补这一下，桅杆会拉成一根细长的竖条，帆也立不起来。
        * cy 是甲板所在的行；tilt 是随浪的上下起伏（近处的船晃得明显）。
+       * 船型见 BOAT_SHAPES：单桅三角帆 / 单桅方帆 / 双桅 / 小艇。
        *
        * 配色是试出来的：第一版帆用青灰（跟海一个色系），整条船糊在海里看不见。
        * 现在靠**冷暖 + 明暗**立起来 —— 帆是暖白（偏米黄），船体是深棕，
@@ -1245,9 +1358,11 @@ const description =
         alpha: number,
         tilt: number,
         goldW = 0,
+        kind: BoatKind = 'sloop',
       ) => {
         const asp = Math.max(1, aspect);
         const deck = Math.round(cy + tilt);
+        const k = BOAT_SHAPES[kind];
         /* 黄金时刻：船体与帆一起往深橙里压，帆的饱和度从「近乎白」抬到 0.48 ——
            白帆在正午是白的，在夕阳下是被点着的一片橙。 */
         const hullHue = lerp(0.055, 0.035, goldW);
@@ -1257,38 +1372,73 @@ const description =
         const sailLit = alpha * lerp(1, 0.9, goldW);
         /* ⚠️ 列坐标必须先取整。plotOver 内部是 `intensity[y * cols + x]`，
            拿浮点 x 去索引 Float32Array 是**静默失败**（不报错、也不写入），
-           整条船会一个字符都画不出来 —— 第一版就栽在这儿。
-           气球那边 x 是 Math.floor/ceil 出来的整数，所以没踩到。 */
+           整条船会一个字符都画不出来 —— 第一版就栽在这儿。 */
         const cxi = Math.round(cx);
+        const S = Math.max(2, s * k.hull); // 船体半长
+
         // 船体：中间吃水深、两头翘起的一条弧
-        for (let dx = -s; dx <= s; dx += 1) {
-          const f = 1 - (dx / s) * (dx / s);
-          const depth = Math.max(0, Math.round((s * 0.62 * f) / asp));
-          for (let k = 0; k <= depth; k += 1) {
-            plotOver(cxi + Math.round(dx), deck + k, (0.44 - 0.08 * k) * alpha, hullHue, hullSat);
+        for (let dx = -S; dx <= S; dx += 1) {
+          const f = 1 - (dx / S) * (dx / S);
+          const depth = Math.max(0, Math.round((S * k.depth * f) / asp));
+          for (let j = 0; j <= depth; j += 1) {
+            plotOver(cxi + Math.round(dx), deck + j, (0.44 - 0.08 * j) * alpha, hullHue, hullSat);
           }
         }
-        const mastH = Math.max(2, Math.round((s * 2.2) / asp));
-        // 桅杆：从甲板往上
-        for (let k = 1; k <= mastH; k += 1) {
-          plotOver(cxi, deck - k, 0.4 * alpha, hullHue, lerp(0.45, 0.6, goldW));
-        }
-        // 主帆：直角三角形。直角边贴着桅杆，斜边从桅顶一路拉到船尾 ——
-        // 越往上越窄，所以是「上尖下宽」，不是一块方布
-        for (let k = 1; k <= mastH; k += 1) {
-          const y = deck - k;
-          const w = Math.max(1, Math.round((s * 1.5 * (mastH - k)) / mastH));
-          for (let j = 1; j <= w; j += 1) {
-            plotOver(cxi + dir * j, y, (1.06 - 0.04 * j) * sailLit, sailHue, sailSat);
+
+        // 桅杆：从甲板往上。双桅船前后各一根
+        const mastH = Math.max(2, Math.round((S * k.mast) / asp));
+        const mastAt = k.masts === 2 ? [-0.44, 0.36] : [0];
+        for (const off of mastAt) {
+          const mx = cxi + Math.round(off * S);
+          for (let j = 1; j <= mastH; j += 1) {
+            plotOver(mx, deck - j, 0.4 * alpha, hullHue, lerp(0.45, 0.6, goldW));
           }
         }
-        // 前帆：小一号，挂在桅杆另一侧，比主帆再淡一点
-        const jibH = Math.max(1, Math.round(mastH * 0.7));
-        for (let k = 1; k <= jibH; k += 1) {
-          const y = deck - k;
-          const w = Math.max(1, Math.round((s * 0.72 * (jibH - k)) / jibH));
-          for (let j = 1; j <= w; j += 1) {
-            plotOver(cxi - dir * j, y, (0.94 - 0.04 * j) * sailLit, sailHue, sailSat * 1.2);
+
+        if (kind === 'square') {
+          /* 方帆：上窄下宽的**梯形**。底边压在甲板上、顶边收掉三分之一 ——
+             不是方布也不是三角，和三角帆一眼就能分开。 */
+          for (let j = 1; j <= mastH; j += 1) {
+            const y = deck - j;
+            const t = j / mastH;
+            const half = Math.max(1, Math.round(S * k.main * (1 - 0.34 * t)));
+            for (let d = -half; d <= half; d += 1) {
+              plotOver(cxi + d, y, (1.02 - 0.035 * Math.abs(d)) * sailLit, sailHue, sailSat);
+            }
+          }
+        } else if (kind === 'schooner') {
+          /* 双桅：两根桅杆各挂一片三角帆，前桅朝船头、后桅朝船尾 ——
+             两片帆中间留一条缝，和单桅那一片大三角完全不同。 */
+          for (let i = 0; i < 2; i += 1) {
+            const mx = cxi + Math.round(mastAt[i] * S);
+            const h = Math.max(2, Math.round(mastH * (i === 0 ? 1 : 0.84)));
+            const side = i === 0 ? -dir : dir;
+            for (let j = 1; j <= h; j += 1) {
+              const y = deck - j;
+              const w = Math.max(1, Math.round((S * k.main * (h - j)) / h));
+              for (let d = 1; d <= w; d += 1) {
+                plotOver(mx + side * d, y, (1 - 0.04 * d) * sailLit, sailHue, sailSat);
+              }
+            }
+          }
+        } else {
+          // sloop / dinghy：一片三角主帆；sloop 另加一片小前帆
+          for (let j = 1; j <= mastH; j += 1) {
+            const y = deck - j;
+            const w = Math.max(1, Math.round((S * k.main * (mastH - j)) / mastH));
+            for (let d = 1; d <= w; d += 1) {
+              plotOver(cxi + dir * d, y, (1.06 - 0.04 * d) * sailLit, sailHue, sailSat);
+            }
+          }
+          if (k.jib > 0) {
+            const jibH = Math.max(1, Math.round(mastH * 0.7));
+            for (let j = 1; j <= jibH; j += 1) {
+              const y = deck - j;
+              const w = Math.max(1, Math.round((S * k.jib * (jibH - j)) / jibH));
+              for (let d = 1; d <= w; d += 1) {
+                plotOver(cxi - dir * d, y, (0.94 - 0.04 * d) * sailLit, sailHue, sailSat * 1.2);
+              }
+            }
           }
         }
       };
@@ -1333,21 +1483,43 @@ const description =
         }
       };
 
+      /** 洗牌：把一个数组原地打乱，用来保证同屏的对象彼此不重复 */
+      const shuffle = <T,>(list: T[]): T[] => {
+        const out = list.slice();
+        for (let i = out.length - 1; i > 0; i -= 1) {
+          const j = Math.floor(Math.random() * (i + 1));
+          const tmp = out[i];
+          out[i] = out[j];
+          out[j] = tmp;
+        }
+        return out;
+      };
+
       /** 热气球：白天才放出来，数量很少 —— 天上飘十几个气球就成了游乐园 */
       const buildBalloons = () => {
         balloons = [];
         const count = Math.round(clamp(cols * 0.014, 2, 4));
+        /* 球型与花纹都从「袋子」里抽：同屏的气球一定拿到不同的球型，
+           花纹再各自随机 —— 三只气球不会长得一样。 */
+        const kinds = shuffle<BalloonKind>(['round', 'tall', 'pear', 'squat']);
+        const patterns: BalloonPattern[] = ['vstripe', 'hstripe', 'plain', 'check', 'crown'];
         for (let i = 0; i < count; i += 1) {
           const warm = Math.random() < 0.72;
           balloons.push({
             x: Math.random() * cols,
             y: bandTop * (0.2 + Math.random() * 0.42),
-            r: Math.max(2.6, cols * 0.019) * (0.82 + Math.random() * 0.42),
+            /* 球体的半径。原来取 cols * 0.019（约 3.4 格宽），球型之间的差别
+               只有两三个字符，等于白做 —— 球型要看得出来，尺寸就得先够。 */
+            r: Math.max(3, cols * 0.026) * (0.82 + Math.random() * 0.42),
             // 每秒走多少列：横穿一屏要几分钟 —— 气球本来就是慢慢飘的
             speed: (0.7 + Math.random() * 0.6) * cols * 0.004,
             hue: warm ? 0.015 + Math.random() * 0.055 : 0.54 + Math.random() * 0.07,
             hue2: warm ? 0.11 + Math.random() * 0.04 : 0.09,
             bob: Math.random() * TAU,
+            kind: kinds[i % kinds.length],
+            pattern: patterns[Math.floor(Math.random() * patterns.length)],
+            sf: 3.2 + Math.random() * 3.4, // 条纹疏密
+            sp: Math.random() * TAU, // 条纹相位
           });
         }
       };
@@ -1385,6 +1557,8 @@ const description =
       const buildBoats = () => {
         boats = [];
         const count = Math.round(clamp(cols * 0.016, 2, 5));
+        // 船型也从袋子里抽：同屏的船一定不同型（单桅三角帆 / 方帆 / 双桅 / 小艇）
+        const kinds = shuffle<BoatKind>(['sloop', 'square', 'schooner', 'dinghy']);
         for (let i = 0; i < count; i += 1) {
           // 深度铺开：远的贴着地平线，近的贴着画面底
           const v = 0.12 + Math.random() * 0.72;
@@ -1395,6 +1569,7 @@ const description =
             speed: (0.2 + Math.random() * 0.35) * cols * 0.004 * (0.35 + v * 1.5),
             dir: Math.random() < 0.5 ? -1 : 1,
             phase: Math.random() * TAU,
+            kind: kinds[i % kinds.length],
           });
         }
       };
@@ -1536,31 +1711,44 @@ const description =
            直接乘一个「亮了就补满」的开关，06:00 到 06:10 之间画面会从全黑跳到全亮，
            看着就是一刀切。所以这里的斜坡从 0.05 拉到 0.34 ——
            既压住那一刻的硬切，又保证 06:25 之后该亮的都亮到位。 */
-        const fillDay = tone.fill * dayness;
+        /* 底色渐变：天空现在是**纯色**（字符层已经撤掉），所以这层要铺满铺实。
+           透明度就是「天亮了没有」：夜里是 0，让 CSS 那层夜空渐变接管。
+           斜坡从 0.02 拉到 0.32 —— dayness 在日出后十分钟里就从 0 爬到 0.18，
+           斜坡太陡会让 06:00→06:05 之间整片天从黑跳到亮（实测平均亮度 27→78）。
+           黄金时刻再抬一档：橙色的亮度天生比暖白低，不补会闷成一层灰褐色。 */
+        const skySolid = smoothstep(0.02, 0.32, dayness);
         goldMix = goldW * smoothstep(0.05, 0.34, dayness);
-        dayFillAlpha = Math.max(fillDay, 0.95 * goldMix);
+        dayFillAlpha = Math.max(skySolid, 0.95 * goldMix);
         dayFillTop = tone.fillTop;
         dayFillBot = tone.fillBot;
         /* 黄金时刻的天空要五段。goldW = 0 时 mid 保持 null，
-           渐变走回原来那两段，和改动前完全一样。 */
+           渐变退回「天顶深蓝 → 地平线暖白」那一条直线。 */
         dayFillMid = goldW > 0.004 ? mixHex(GOLD_SKY_MID, tone.fillBot, goldW) : null;
         dayFillDusk = goldW > 0.004 ? mixHex(GOLD_SKY_DUSK, tone.fillBot, goldW) : tone.fillBot;
         dayFillHor = goldW > 0.004 ? mixHex(DAY_TONE.fillBot, GOLD_SKY_HOR, goldW) : tone.fillBot;
-        /* 日头那一圈径向辉光：线性渐变只能按行铺，做不出「亮从日头的位置
-           向两边散开」。强度直接跟着 goldMix 走 —— 它自带「天亮了没有」那条
-           斜坡，所以不会在 06:00 那一刻先冒出一团光。 */
+        /* 日头那一圈径向辉光。天空改成纯色之后，日头周围的光晕不能再靠
+           「天光那一层的字符亮度」撑起来 —— 得由这层径向渐变自己画。
+           白天是一圈白热的柔光，黄金时刻换成更大、更暖、更铺得开的一团。 */
         glowX = sunXs;
         glowY = sunY;
-        goldGlow = 0.62 * goldMix;
+        sunGlow = smoothstep(0.03, 0.28, dayness) * lerp(0.5, 0.62, goldMix);
+        goldWNow = goldW;
         /* 海面顶上接住地平线的颜色（那一片在反射天光），往下压到 seaDeep */
         dayFillSeaTop = dayFillHor;
         dayFillSeaMid = goldW > 0.004 ? mixHex(GOLD_SEA_MID, tone.seaDeep, goldW) : tone.seaDeep;
         dayFillSeaDeep = tone.seaDeep;
 
-        /* 标题那圈暗色晕罩：白天要淡到没有。
+        /* 标题那圈暗色晕罩：天亮之后要淡到没有。
            天亮之后标题自己换成了深蓝，再压一层黑罩反而是把对比度拉低 ——
-           深字配亮天本来就清楚，罩子该退场。只在变化超过 0.02 时才写 CSS 变量。 */
-        const toneDark = smoothstep(0.1, 0.55, dayness) * tone.titleDark;
+           深字配亮天本来就清楚，罩子该退场。只在变化超过 0.02 时才写 CSS 变量。
+
+           ⚠️ 标题的深浅要跟**天空实际有多亮**走，不是跟 dayness 走。
+           两者在日出日落时差得很远：06:20 的 dayness 才 0.26，可天已经被
+           底色渐变铺到 0.9 了 —— 按 dayness 算出来的 toneDark 只有 0.29，
+           浅青的字压在亮桃色的天上，实测对比度只有 1.85:1（读不清）。
+           skySolid 就是「底色铺了多满」，拿它当标题的深浅才对得上。
+           （noon / 深夜两端 skySolid 与原来的取值完全一致，那两档没变。） */
+        const toneDark = Math.max(skySolid, smoothstep(0.1, 0.55, dayness)) * tone.titleDark;
         const haloAlpha = 0.93 * (1 - toneDark);
         const titleGlow = 0.38 * (1 - 0.9 * toneDark);
         if (Math.abs(haloAlpha - lastHalo) > 0.02) {
@@ -1572,68 +1760,16 @@ const description =
         /* 标题配色跟着白天走；跨过一档才会真的重画（titleRedraw 内部会挡掉） */
         titleRedraw?.(toneDark);
 
-        /* ---------- 0) 白天的天光：先把天铺亮，后面几层再叠上去 ----------
-           夜里 dayness = 0，这一段整块跳过，代价为零。 */
-        if (dayness > 0.004) {
-          /* 黄金时刻：太阳周围的暖晕要更大、更亮，暖色也要顺着天爬得更高 ——
-             黄昏的天是**整片**染过的，不是地平线上一根橙带。
-             下面这几个量在 goldW = 0 时全部退回原值，白天那一档逐位不变。 */
-          const haloW = Math.max(8, cols * lerp(0.17, 0.27, goldW));
-          const haloH = Math.max(6, bandTop * lerp(0.55, 0.9, goldW));
-          const haloK = lerp(1.7, 1.1, goldW);
-          const haloAmp = dayness * lerp(0.3, 0.52, goldW);
-          const warmLo = lerp(0.3, 0.06, goldW); // 暖色从天顶下多远开始铺
-          for (let y = 0; y < bandTop; y += 1) {
-            const v = y / Math.max(1, bandTop); // 0 天顶 → 1 地平线
-            const base = dayness * (tone.zen + tone.hor * Math.pow(v, 1.2));
-            if (base <= 0.02) continue;
-            /* 地平线那一带往暖里偏：真实白昼的地平线是被大气染过的暖色。
-               色相怎么走由 warmBlend 管（不能直接插值，会从绿色穿过去）。
-               黄金时刻暖的那一头是深橙 + 高饱和，见 tone.warmHue / tone.warmSat。 */
-            const warmAmt = tone.warm * smoothstep(warmLo, 1, v);
-            const [hueDay, satDay] = warmBlend(
-              lerp(tone.hueTop, tone.hueBot, v),
-              lerp(tone.satTop, tone.satBot, v),
-              warmAmt,
-              tone.warmHue,
-              tone.warmSat,
-            );
-            /* 黄金时刻的色相改走「暖的那条弧」：靛 → 紫 → 品红 → 红 → 橙。
-               warmBlend 是**直线**插值，靛 0.57 到橙 0.04 的中点是 0.30 ≈ 110°（绿），
-               白天那一档 warmSat 只有 0.22、绿被低饱和压住看不出来；
-               黄金时刻要烧起来，一插就露出一圈绿。goldW = 0 时两项原样退回。 */
-            const goldT = smoothstep(warmLo, 1, v);
-            const hueMix = lerp(hueDay, hueArcWarm(tone.hueTop, tone.warmHue, goldT), goldW);
-            const satMix = lerp(
-              satDay,
-              lerp(lerp(tone.satTop, tone.satBot, v), 0.34, goldT),
-              goldW,
-            );
-            for (let x = 0; x < cols; x += 1) {
-              const idx = y * cols + x;
-              /* 太阳周围把天光本身抬起来，而不是画一个硬边光晕 ——
-                 1/(1+d²) 比 exp 便宜，形状几乎一样。 */
-              const dsx = (x - sunXs) / haloW;
-              const dsy = (y - sunY) / haloH;
-              const halo = 1 / (1 + (dsx * dsx + dsy * dsy) * haloK);
-              const n = valueNoise(x * 0.03 + 3.1, y * 0.045 + 7.7);
-              /* 再叠一层低频：白天要是只有一层细颗粒，天就成了一张均匀的网。
-                 这一层频率低得多，起伏就是「云的块」。 */
-              const n2 = valueNoise(x * 0.011 + 21.3, y * 0.018 + 9.4);
-              /* 还要撒一点**逐格**的抖动。天光本身是平滑的，但字符是按亮度挑的 ——
-                 平滑的梯度会让同一行每格都挑到同一种字，几十行叠起来就是一道道横纹
-                 （看着像扫描线）。逐格抖一下把行打断，纹理才是散开的。 */
-              const jitter = (hash2(x * 7 + 3, y * 11 + 5) - 0.5) * 0.22;
-              const b = base * (0.7 + 0.28 * n + 0.36 * n2) + haloAmp * halo + jitter;
-              if (b <= intensity[idx]) continue;
-              intensity[idx] = b;
-              /* 太阳附近再往暖里偏一点。黄金时刻偏得更多，而且**别把饱和度洗掉** ——
-                 白天的晕是「发白」，黄昏的晕是「发橙」，方向正好相反。 */
-              hueBuf[idx] = hueMix - halo * lerp(0.07, 0.16, goldW) + (n2 - 0.5) * 0.03;
-              satBuf[idx] = satMix - halo * lerp(0.16, 0.04, goldW);
-            }
-          }
-        }
+        /* ---------- 0) 白天的天光：**不再画字符** ----------
+           这一层原来是把天铺亮的字符场：一层平滑的亮度梯度去挑字符，
+           再逐格抖动把行纹打断。远看就是一张均匀的网点 —— 密、重复、发乱。
+           天空本来就该是一片干净的颜色，字符只该出现在**有东西的地方**。
+           整片天现在交给 render() 里那条铺满的底色渐变；
+           日头周围的光晕也一并交给径向渐变（linear 渐变按行铺，
+           做不出「亮从日头向两边散开」）。
+
+           顺带省掉一整层逐格计算：桌面 1440×900 下这里是 25 行 × 179 列。
+           夜里 dayness = 0，这一段本来就不走。 */
 
         /* ---------- 1) 星云：天空的底色，紫到品红，跟着天一起往左漂 ---------- */
         for (let y = 0; y < bandTop && nightGain > 0.004; y += 1) {
@@ -1656,53 +1792,12 @@ const description =
           }
         }
 
-        /* ---------- 2) 流星带：天与海之间新长出来的一段 ----------
-           这一段里没有实体，只有一层越往下越浓的雾 —— 大气最远的那一头。
-           单格都暗到几乎看不见，几十行叠起来才成一条过渡带。 */
-        for (let y = bandTop; y < horizon; y += 1) {
-          const v = (y - bandTop) / Math.max(1, horizon - bandTop); // 0 = 带顶，1 = 地平线
-          // 白天这一段跟着天光一起亮：它本来就是「大气的厚度」，天亮它就该亮
-          const mist =
-            (0.03 + 0.13 * Math.pow(v, 1.5)) * 0.9 +
-            dayness * gain * lerp(0.36, 0.95, goldW) * Math.pow(v, 1.1);
-          const ny = y * 0.05;
-          /* 从上到下由紫转青：接住上面的星云，也接住下面的地平线。
-             白天整段往天光那支蓝里靠，越贴近地平线越暖（warmBlend 管色相路径）。 */
-          const warmAmt = tone.warm * smoothstep(0.25, 1, v);
-          const [dayHue, daySat] = warmBlend(
-            0.565,
-            0.38,
-            warmAmt,
-            tone.warmHue,
-            tone.warmSat,
-          );
-          /* 黄金时刻：整条雾带从带顶的紫一路烧到地平线的橙，同样走「暖的那条弧」。
-             这一段是画面里最大的一片，直线插值留下的绿在这里最显眼。 */
-          const mistHue = lerp(
-            lerp(lerp(0.72, 0.545, v), dayHue, dayness * 0.8),
-            hueArcWarm(0.72, tone.warmHue, v),
-            goldW,
-          );
-          const mistSat = lerp(
-            lerp(0.52, daySat, dayness),
-            lerp(0.2, 0.4, v),
-            goldW,
-          );
-          for (let x = 0; x < cols; x += 1) {
-            const nx = (x + drift * 0.3) * 0.021;
-            const n =
-              valueNoise(nx, ny + 3.3) * 0.62 + valueNoise(nx * 2.1 + 9.7, ny * 2.2) * 0.38;
-            /* 黄金时刻：太阳那一侧的雾被点着。整条雾带要是只按行变化，
-               就会变成一条平的「纸板」—— 真实日出里那片亮是从日头的位置
-               向两边铺开的，所以这里加一个横向的高斯，中心钉在 sunXs 上。 */
-            const dsx = (x - sunXs) / Math.max(12, cols * 0.42);
-            const nearSun = goldW > 0.004 ? Math.exp(-dsx * dsx) : 0;
-            const b =
-              mist * (0.35 + 1.05 * n) * (1 + goldW * 1.7 * nearSun * (0.4 + 0.6 * v));
-            if (b <= 0.012) continue;
-            plot(x, y, b, mistHue, mistSat);
-          }
-        }
+        /* ---------- 2) 流星带：**不再画字符** ----------
+           原来这里是一层「大气的厚度」：越往下越浓的雾，靠几十行暗格叠出来。
+           和天光层一样，它是一张铺满的网，不是形状。
+           现在这段高度由底色渐变自己从 bandTop 过渡到 horizon，
+           只留下最下面那条**地平线光带**（第 6 段）—— 那一条有形状、有明暗，
+           是画面里真正需要的一笔。 */
 
         /* ---------- 3) 流星：一个个字符从带顶落向地平线 ----------
            每颗流星有自己的轨道和周期，亮度走一条 sin 曲线 —— 进场时慢慢亮起来，
@@ -1955,7 +2050,7 @@ const description =
             const pad = bl.r * 4; // 两端留出余量，好让它整个飘出去再绕回来
             const bx = wrap(bl.x - t * bl.speed + pad, cols + pad * 2) - pad;
             const by = bl.y + Math.sin(t * 0.24 + bl.bob) * 1.6;
-            drawBalloon(bx, by, bl.r, bl.hue, bl.hue2, life * lerp(1, 0.88, goldW));
+            drawBalloon(bx, by, bl, life * lerp(1, 0.88, goldW));
           }
           for (let i = 0; i < flocks.length; i += 1) {
             const f = flocks[i];
@@ -1984,7 +2079,16 @@ const description =
             const bx = wrap(bt.x + bt.dir * t * bt.speed + pad, cols + pad * 2) - pad;
             const row = lerp(horizon + 1, rows - 1.5, Math.pow(bt.v, 1.35));
             const tilt = Math.sin(t * (0.55 + bt.v) + bt.phase) * (0.45 + bt.v * 1.1);
-            drawBoat(bx, row, Math.max(2.8, cols * 0.021 * (0.45 + bt.v)), bt.dir, life, tilt, goldW);
+            drawBoat(
+              bx,
+              row,
+              Math.max(2.8, cols * 0.021 * (0.45 + bt.v)),
+              bt.dir,
+              life,
+              tilt,
+              goldW,
+              bt.kind,
+            );
           }
         }
       };
@@ -1995,28 +2099,52 @@ const description =
         return i < 0 ? i + HUE_STEPS : i;
       };
 
+      /* ============================================================
+         分段显影：先给背景，再给界面
+         ------------------------------------------------------------
+         html 上那个 is-boot 是 <head> 里的内联脚本加的（没有 JS 就不会有）。
+         这里负责在合适的时机摘掉它 —— 摘掉之后 CSS 的过渡把标题、字集、
+         正文、页脚依次浮上来（延迟写在样式里）。
+
+         ⚠️ 这两个函数必须声明在 render() **之前**：render 末尾会调 markBooted，
+         而 render 是个 const 箭头函数。虽然它第一次被调用时这两个已经初始化了，
+         但只要以后有人在更早的地方调一次 render，就会撞上 TDZ 报错 ——
+         打包之后连变量名都被压缩器重用过，报错信息根本看不出是哪儿。
+         ============================================================ */
+      let booted = false;
+      const revealUI = () => document.documentElement.classList.remove('is-boot');
+      const markBooted = () => {
+        if (booted) return;
+        booted = true;
+        /* 让背景先自己亮一下再上界面 —— 这一下是「等待」的那口气，
+           太短（原来 260ms）界面几乎和背景一起出来，等于没有先后。 */
+        window.setTimeout(revealUI, reduced ? 0 : 420);
+      };
+      /* 兜底：画布拿不到、脚本中途报错、第一帧迟迟不来 ——
+         2.5 秒之后无论如何都把界面放出来，不能把内容永远藏住。 */
+      window.setTimeout(revealUI, 2500);
+
       const render = (t: number) => {
         if (!ctx) return;
         drawScene(t);
 
         ctx.clearRect(0, 0, W, H);
 
-        /* 白天先在天空和海面底下垫一层渐变。
-           一个等宽字符只覆盖格子三成左右，全画到最亮感知也只有 80/255 ——
-           那是阴天不是白天。垫上这层之后字符退成底色上的纹理，天和海才是亮的。
-           天空：天顶深、地平线亮；海面：贴着地平线最亮（反射天光），往下压深。 */
+        /* 天空现在是**一整片纯色渐变**（字符层已经撤掉），所以这层不是「垫在字
+           底下」，它自己就是画面。范围仍然铺到 horizon —— 天与海之间那段
+           「流星带」的高度也归它管，不再靠字符叠出来。
+           海面另垫一层：贴着地平线最亮（那一片在反射天光），往下压深。 */
         if (dayFillAlpha > 0.004) {
           const skyPx = Math.max(1, horizon * cellH);
           const g = ctx.createLinearGradient(0, 0, 0, skyPx);
           const skyMid = Math.min(0.95, bandTop / Math.max(1, horizon));
-          g.addColorStop(0, dayFillTop);
           if (dayFillMid) {
             /* 黄金时刻的天是**五段**的：靛 → 紫玫瑰 → 暮粉 → 橙 → 亮黄。
                只给「靛 → 橙」两个色标的话，中间会从灰里穿过去，烧不起来；
-               而如果橙占得太宽（原来 fillBot 从 0.714 一直铺到底），
-               雾带那一片就成了一条平坦的「纸板」—— 所以把橙压到 0.9 以后，
-               最亮的亮黄只留在地平线那一线，形成一条贴着海面的光。
-               每段还带自己的透明度：下亮上暗，天顶才不会被一起冲淡。
+               而如果橙占得太宽，天空下段就成了一条平坦的「纸板」——
+               所以把橙压到 0.9，最亮的亮黄只留在地平线那一线。
+               每段还带自己的透明度：下亮上暗，天顶才不会被一起冲淡
+               （天顶那 42% 让 CSS 的夜空渐变透上来，正好压成深靛）。
                注意这是 RGB 插值，不是色相插值 —— 色相从 216° 走到 34° 会经过绿色。 */
             g.addColorStop(0, rgba(dayFillTop, lerp(1, 0.42, goldMix)));
             g.addColorStop(0.42, rgba(dayFillMid, lerp(1, 0.7, goldMix)));
@@ -2024,8 +2152,11 @@ const description =
             g.addColorStop(0.9, rgba(dayFillBot, 1));
             g.addColorStop(1, rgba(dayFillHor, 1));
           } else {
-            g.addColorStop(skyMid, dayFillBot);
-            g.addColorStop(1, dayFillBot);
+            /* 白天：天顶深蓝 → 地平线暖白，一条干净的直线。
+               原来是「铺到 bandTop 就换成暖白、之后一平到底」——
+               那是给字符当底用的；现在天自己就是画面，平掉的那一段会成一条硬边。 */
+            g.addColorStop(0, rgba(dayFillTop, 1));
+            g.addColorStop(1, rgba(dayFillBot, 1));
           }
           ctx.globalAlpha = dayFillAlpha;
           ctx.fillStyle = g;
@@ -2052,17 +2183,21 @@ const description =
           ctx.fillRect(0, seaTop, W, H - seaTop);
           ctx.globalAlpha = 1;
 
-          /* 黄金时刻再叠一层以日头为圆心的径向辉光 —— 整片天被日头点亮的那一圈。
+          /* 以日头为圆心的一圈径向辉光。天空改成纯色之后，这层从「锦上添花」
+             变成了**必需** —— 日头周围的光晕原本是靠天光那一层的字符亮度撑起来的，
+             现在只剩它了。
+             配色随黄金时刻插值：白天是白热的柔光，黄昏换成更大更暖的一团。
              放在字符之前画，所以它垫在字的下面，只负责把底色推暖推亮。 */
-          if (goldGlow > 0.004) {
+          if (sunGlow > 0.004) {
             const cx = glowX * cellW;
             const cy = glowY * cellH;
-            const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.66);
-            rg.addColorStop(0, 'rgba(255,232,178,0.9)');
-            rg.addColorStop(0.3, 'rgba(255,176,96,0.44)');
-            rg.addColorStop(0.62, 'rgba(255,140,74,0.16)');
-            rg.addColorStop(1, 'rgba(255,120,60,0)');
-            ctx.globalAlpha = goldGlow;
+            const r = Math.max(W, H) * lerp(0.44, 0.66, goldWNow);
+            const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+            rg.addColorStop(0, rgba(mixHex('#fffaf0', '#ffe8b2', goldWNow), lerp(0.72, 0.9, goldWNow)));
+            rg.addColorStop(0.3, rgba(mixHex('#fff2d8', '#ffb060', goldWNow), lerp(0.34, 0.44, goldWNow)));
+            rg.addColorStop(0.64, rgba(mixHex('#ffe0b4', '#ff8c4a', goldWNow), lerp(0.12, 0.16, goldWNow)));
+            rg.addColorStop(1, rgba('#ff8c4a', 0));
+            ctx.globalAlpha = sunGlow;
             ctx.fillStyle = rg;
             ctx.fillRect(0, 0, W, H);
             ctx.globalAlpha = 1;
@@ -2089,10 +2224,13 @@ const description =
 
             if (binary) {
               if (b <= 0) {
-                // 空无一物的地方也铺一层很暗的 0：这就是「01 字符串」的那层底
+                /* 空无一物的地方铺一层很暗的 0 —— 这就是「01 字符串」的那层底。
+                   ⚠️ 但**天空不铺**：天空现在是纯色渐变，再盖一层均匀的 0
+                   就又把那张网贴回去了，等于白改。01 模式的身份交给海面承担。 */
+                if (y < horizon) continue;
                 ch = '0';
                 // 海面以下压得更暗：01 模式下也要能读出纵深
-                lit = y < horizon ? 0.15 : 0.085;
+                lit = 0.085;
                 hh = 0.6;
                 ss = 0.42;
               } else {
@@ -2122,6 +2260,11 @@ const description =
             ctx.fillText(ch, Math.round(x * cellW), py);
           }
         }
+
+        /* 第一帧落地了 —— 背景已经在，可以把界面浮上来了。
+           放在 render() 的末尾（而不是别处），因为只有这里能保证
+           「字符画真的画出来了」这件事已经发生。 */
+        markBooted();
       };
 
       /* ============================================================
@@ -2415,6 +2558,10 @@ const description =
         build();
         if (reduced) render(8);
         else start();
+      } else {
+        /* 画布拿不到就别等了 —— 界面立刻放出来，
+           不然 is-boot 会把内容一直藏着（虽然 2.5 秒后也有兜底，但没必要等）。 */
+        revealUI();
       }
     </script>
   </body>
