@@ -78,6 +78,10 @@ const description =
         --cyan: #7fe6ff;
         --violet: #b79bff;
         --line: rgba(150, 205, 255, 0.2);
+        /* 控件的圆角：容器一档、里面的按钮再小一档 ——
+           略带弧度，不是胶囊。内容面板仍然保持直角，两者是有意分开的。 */
+        --r-ctl: 10px;
+        --r-btn: 7px;
         --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "PingFang SC",
           "Microsoft YaHei", monospace;
       }
@@ -243,8 +247,10 @@ const description =
         align-items: center;
         gap: 0.35rem;
         margin-top: 0.6rem;
-        padding: 0.3rem 0.4rem 0.3rem 0.85rem;
+        /* 左右内边距对称：原来标签那侧多给了半档，整个组的视觉重心会偏右 */
+        padding: 0.3rem 0.5rem;
         border: 1px solid var(--line);
+        border-radius: var(--r-ctl);
         background: rgba(5, 9, 18, 0.66);
         backdrop-filter: blur(7px);
       }
@@ -263,7 +269,17 @@ const description =
         color: var(--dim);
         background: transparent;
         border: 1px solid transparent;
+        border-radius: var(--r-btn);
         cursor: pointer;
+      }
+
+      /* 等宽字体里每个字形都占同样宽的格子，但**墨迹**并不填满格子：
+         「I」两侧的空白比「1」宽得多，所以「ASCII」的墨迹看起来偏左。
+         盒子本身是居中的（CSS 没做错），偏的是视觉重心。
+         这种偏移和具体字符有关，给所有按钮加统一补偿会把「01」推歪，
+         所以只给「ASCII」这一枚补 —— 0.22em 是按像素量出来的。 */
+      .seg__btn[data-mode='ascii'] {
+        text-indent: 0.22em;
       }
 
       .seg__btn:hover {
@@ -412,6 +428,7 @@ const description =
         color: var(--dim);
         background: rgba(5, 9, 18, 0.66);
         border: 1px solid var(--line);
+        border-radius: var(--r-btn);
         cursor: pointer;
       }
 

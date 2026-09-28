@@ -2,9 +2,11 @@
 /**
  * EntryGate —— 站点前置入口门（覆盖层）
  *
- * 门后是两条路：
- *   ▶ ENTER        → 进 /wired/（星海分站）。门就是分站的门。
- *   ▷ 静音进入主站 → 留在 za4ever.com 首页，只是把门收起来（不开音效）。
+ * 门后只有一条路：
+ *   ENTER → 进 /wired/（星海分站）。门就是分站的门。
+ *
+ * ⚠️ 「静音进入主站」已按需求撤掉，所以门打开时**留在首页的唯一出口是 Escape**。
+ *    如果再需要一条看得见的入口，得另外加一个（点背景关闭 / 角落一个 × 之类）。
  *
  * 画面主体是「缸中之脑」：一个用字符网格现算出来的大脑，泡在玻璃罩里，
  * 四周甩出线缆，信号一段段沿着线缆往外跑 —— 一张在动的神经网。
@@ -33,7 +35,7 @@
  *     按下去就是立刻换页，门会一直盖着直到新文档接手，中间不会闪出主站首页。
  *   - 进入音不能在这一页播：文档马上就被换掉，只会剩下半声。所以这里只在按下
  *     ENTER 的那一刻写一个一次性标记，由落地页 /wired/ 读它出声。
- *   - 门上没有任何文字：域名与标题都已撤掉，只剩一条 ENTER、一条静音入口，
+ *   - 门上没有任何文字：域名与标题都已撤掉，只剩一个 ENTER 按钮（圆角、无箭头），
  *     其余全部交给画布上的那颗脑子和它四周的神经网。
  *
  * 关于 ENTER 的位置与悬停（本版调整）：
@@ -70,14 +72,10 @@
       <!-- 两个标签叠在同一格里：ENTER 淡出、PRESS 淡入。
            PRESS 对读屏是装饰，真正的链接名仍是 ENTER。 -->
       <a class="entry-gate__btn" id="entry-gate-enter" href="/wired/">
-        <span class="entry-gate__label entry-gate__label--enter">▶ ENTER</span>
-        <span class="entry-gate__label entry-gate__label--press" aria-hidden="true">▶ PRESS</span>
+        <span class="entry-gate__label entry-gate__label--enter">ENTER</span>
+        <span class="entry-gate__label entry-gate__label--press" aria-hidden="true">PRESS</span>
       </a>
     </div>
-
-    <p class="entry-gate__hint">
-      <button class="entry-gate__skip" id="entry-gate-skip" type="button">静音进入主站 →</button>
-    </p>
   </div>
 </div>
 
@@ -181,6 +179,8 @@
        让皮层纹理还能透出来一点。 */
     background: rgba(5, 8, 14, 0.5);
     border: 2px solid #59cfff;
+    /* 略带弧度的圆角。box-shadow 会跟着圆角走，那层硬投影不用单独改。 */
+    border-radius: 12px;
     cursor: pointer;
     text-decoration: none;
     text-shadow: 0 0 10px rgba(89, 207, 255, 0.75), 0 0 2px rgba(5, 8, 14, 0.9);
@@ -193,8 +193,10 @@
   .entry-gate__label {
     grid-area: 1 / 1;
     white-space: nowrap;
-    /* letter-spacing 会在最后一个字后面留一份空隙，字看着偏左；
-       margin-right 补上同样大小的负值，字才真正落在盒子正中。
+    /* letter-spacing 会在最后一个字后面留一份空隙，整串字因此偏右；
+       margin-right 补一份负值把它拉回来。**补一半，不是补全** ——
+       实测补全（-0.24em 配 0.24em）反而把字推过头 1.5px，
+       补一半（-0.12em）才落在正中（残差 0.5px，已经在设备像素以内）。
        两者一起过渡，横向散开时中心始终不动。 */
     transition:
       opacity 0.36s ease,
@@ -207,7 +209,7 @@
      中间不会有某一帧「什么都没有」的空档。 */
   .entry-gate__label--enter {
     letter-spacing: 0.24em;
-    margin-right: -0.24em;
+    margin-right: -0.12em;
     opacity: 1;
     filter: blur(0);
   }
@@ -215,7 +217,7 @@
   /* PRESS 先藏着，且已经「散开」——显影时正好收拢回正常字距 */
   .entry-gate__label--press {
     letter-spacing: 0.06em;
-    margin-right: -0.06em;
+    margin-right: -0.03em;
     opacity: 0;
     filter: blur(5px);
   }
@@ -231,14 +233,14 @@
     .entry-gate__btn:hover .entry-gate__label--enter {
       opacity: 0;
       letter-spacing: 0.52em;
-      margin-right: -0.52em;
+      margin-right: -0.26em;
       filter: blur(6px);
     }
 
     .entry-gate__btn:hover .entry-gate__label--press {
       opacity: 1;
       letter-spacing: 0.24em;
-      margin-right: -0.24em;
+      margin-right: -0.12em;
       filter: blur(0);
     }
   }
@@ -274,24 +276,6 @@
     }
   }
 
-  .entry-gate__hint {
-    /* 按钮挪进舞台之后，这里留一点空隙，免得压到画布上缸座的两只脚 */
-    margin: 1rem 0 0;
-    font-size: 0.76rem;
-    opacity: 0.62;
-  }
-
-  .entry-gate__skip {
-    padding: 0.2rem 0.4rem;
-    font: inherit;
-    font-size: 0.76rem;
-    color: inherit;
-    background: rgba(5, 8, 14, 0.5);
-    border: 0;
-    border-bottom: 1px dashed currentColor;
-    cursor: pointer;
-  }
-
   .entry-gate :focus-visible {
     outline: 2px solid #59cfff;
     outline-offset: 3px;
@@ -304,7 +288,6 @@
   const stage = document.querySelector<HTMLElement>('.entry-gate__stage');
   const gate = document.getElementById('entry-gate');
   const enterLink = document.getElementById('entry-gate-enter');
-  const skipBtn = document.getElementById('entry-gate-skip');
   const main = document.getElementById('main');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -1027,10 +1010,9 @@
       if (event.key === 'Enter') armEnterSound(event);
     });
 
-    skipBtn?.addEventListener('click', dismissGate);
-
     document.addEventListener('keydown', (event) => {
-      // Enter 交给聚焦中的 ENTER 链接自己处理（它就在默认焦点上），这里只管 Escape
+      // Enter 交给聚焦中的 ENTER 链接自己处理（它就在默认焦点上），这里只管 Escape。
+      // ⚠️ 「静音进入主站」撤掉之后，Escape 是**留在首页的唯一出口**。
       if (event.key === 'Escape') dismissGate();
     });
 
