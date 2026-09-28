@@ -7,7 +7,8 @@
  *
  * 画法（全部在浏览器里现算，没有任何图片 / 字体 / 音频文件）：
  *   1. 把视口切成等宽字符网格（列宽 = 实测字宽，所以网格严格对齐）。
- *   2. 画面分三段：天空（星云 / 星 / 一轮月或日 / 热气球 / 鸟群）→ 流星带 → 海面。
+ *   2. 画面分三段：天空（星云 / 星 / 一轮月或日 / 热气球 / 鸟群）→ 流星带
+ *      → 海面（透视压缩的浪 / 帆船）。
  *      中间那段流星带就是天与海之间新长出来的过渡：一个个字符从带顶落向
  *      地平线，进场时慢慢亮起来，中段最亮，再一路暗下去熄灭。
  *   3. 整片天空连同星和月一起向左缓慢漂移，越「近」的天体走得越快，
@@ -17,10 +18,10 @@
  *      白天（06:00–18:00）太阳走同一条轨道，天光亮起来、星星星云流星一起退场。
  *      两者在 06:00 / 18:00 都贴着地平线，所以是同一套坐标算出来的，接得上。
  *      ?t=HH:MM 可以覆盖本地时间，方便对时。
- *   4. 每帧给每个格子算一个「亮度 + 色相 + 饱和度」，分九层叠加：
+ *   4. 每帧给每个格子算一个「亮度 + 色相 + 饱和度」，分十层叠加：
  *        白天的天光 → 星云 → 流星带的雾 → 流星 → 星 → 月/日 → 地平线光带
- *        → 海面（透视压缩的浪 + 日月碎成的一条路）→ 热气球与鸟群
- *      最后一层走的是**强制覆盖**通道（亮度存成负数）：鸟是逆光的剪影，
+ *        → 海面（透视压缩的浪 + 日月碎成的一条路）→ 热气球与鸟群 → 帆船
+ *      最后两层走的是**强制覆盖**通道（亮度存成负数）：鸟是逆光的剪影，
  *      比亮天更暗，用「取最大值」的常规通道会被天整个吃掉。
  *   5. 亮度决定字形（ASCII 密度阶梯，或 0/1 的有序抖动）与颜色深浅。
  *
@@ -941,6 +942,16 @@ const description =
         birds: Bird[];
       }
 
+      /** 一条帆船：在海面上按深度缩放，慢速横移，随浪轻轻起伏 */
+      interface Boat {
+        x: number;
+        /** 深度：0 贴着地平线（远、小），1 贴着画面底（近、大） */
+        v: number;
+        speed: number;
+        dir: number;
+        phase: number;
+      }
+
       const canvas = document.getElementById('field') as HTMLCanvasElement | null;
       const ctx = canvas?.getContext('2d', { alpha: true }) ?? null;
       const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -961,6 +972,7 @@ const description =
       let meteors: Meteor[] = [];
       let balloons: Balloon[] = [];
       let flocks: Flock[] = [];
+      let boats: Boat[] = [];
       let moonR = 4;
       let mode: Mode = 'ascii';
 
@@ -1042,6 +1054,64 @@ const description =
               const b = (basket ? 0.62 : neck ? 0.5 : 0.38) * alpha;
               plotOver(x, y, b, 0.09, 0.52);
             }
+          }
+        }
+      };
+
+      /**
+       * 一条帆船：船体 + 桅杆 + 主帆 + 前帆，全部按格现算。
+       * 纵向尺寸同样要**除以 aspect** —— 字符格是 7.2×12 的长方形，
+       * 不补这一下，桅杆会拉成一根细长的竖条，帆也立不起来。
+       * cy 是甲板所在的行；tilt 是随浪的上下起伏（近处的船晃得明显）。
+       *
+       * 配色是试出来的：第一版帆用青灰（跟海一个色系），整条船糊在海里看不见。
+       * 现在靠**冷暖 + 明暗**立起来 —— 帆是暖白（偏米黄），船体是深棕，
+       * 压在一片青蓝的海上才认得出是条船。
+       */
+      const drawBoat = (
+        cx: number,
+        cy: number,
+        s: number,
+        dir: number,
+        alpha: number,
+        tilt: number,
+      ) => {
+        const asp = Math.max(1, aspect);
+        const deck = Math.round(cy + tilt);
+        /* ⚠️ 列坐标必须先取整。plotOver 内部是 `intensity[y * cols + x]`，
+           拿浮点 x 去索引 Float32Array 是**静默失败**（不报错、也不写入），
+           整条船会一个字符都画不出来 —— 第一版就栽在这儿。
+           气球那边 x 是 Math.floor/ceil 出来的整数，所以没踩到。 */
+        const cxi = Math.round(cx);
+        // 船体：中间吃水深、两头翘起的一条弧
+        for (let dx = -s; dx <= s; dx += 1) {
+          const f = 1 - (dx / s) * (dx / s);
+          const depth = Math.max(0, Math.round((s * 0.62 * f) / asp));
+          for (let k = 0; k <= depth; k += 1) {
+            plotOver(cxi + Math.round(dx), deck + k, (0.44 - 0.08 * k) * alpha, 0.055, 0.62);
+          }
+        }
+        const mastH = Math.max(2, Math.round((s * 2.2) / asp));
+        // 桅杆：从甲板往上
+        for (let k = 1; k <= mastH; k += 1) {
+          plotOver(cxi, deck - k, 0.4 * alpha, 0.055, 0.45);
+        }
+        // 主帆：直角三角形。直角边贴着桅杆，斜边从桅顶一路拉到船尾 ——
+        // 越往上越窄，所以是「上尖下宽」，不是一块方布
+        for (let k = 1; k <= mastH; k += 1) {
+          const y = deck - k;
+          const w = Math.max(1, Math.round((s * 1.5 * (mastH - k)) / mastH));
+          for (let j = 1; j <= w; j += 1) {
+            plotOver(cxi + dir * j, y, (1.06 - 0.04 * j) * alpha, 0.1, 0.16);
+          }
+        }
+        // 前帆：小一号，挂在桅杆另一侧，比主帆再淡一点
+        const jibH = Math.max(1, Math.round(mastH * 0.7));
+        for (let k = 1; k <= jibH; k += 1) {
+          const y = deck - k;
+          const w = Math.max(1, Math.round((s * 0.72 * (jibH - k)) / jibH));
+          for (let j = 1; j <= w; j += 1) {
+            plotOver(cxi - dir * j, y, (0.94 - 0.04 * j) * alpha, 0.1, 0.2);
           }
         }
       };
@@ -1134,6 +1204,24 @@ const description =
         }
       };
 
+      /** 帆船：也是白天的东西。数量很少 —— 海面上一排船就成港口了 */
+      const buildBoats = () => {
+        boats = [];
+        const count = Math.round(clamp(cols * 0.016, 2, 5));
+        for (let i = 0; i < count; i += 1) {
+          // 深度铺开：远的贴着地平线，近的贴着画面底
+          const v = 0.12 + Math.random() * 0.72;
+          boats.push({
+            x: Math.random() * cols,
+            v,
+            // 越近看着走得越快（透视），方向各半
+            speed: (0.2 + Math.random() * 0.35) * cols * 0.004 * (0.35 + v * 1.5),
+            dir: Math.random() < 0.5 ? -1 : 1,
+            phase: Math.random() * TAU,
+          });
+        }
+      };
+
       /** 量出一格字符的真实尺寸，再把视口切成网格 */
       const build = () => {
         if (!canvas || !ctx) return;
@@ -1190,6 +1278,7 @@ const description =
         buildMeteors();
         buildBalloons();
         buildFlocks();
+        buildBoats();
       };
 
       /** 把这一帧的「星海」写进 intensity / hue / sat 三个缓冲 */
@@ -1587,6 +1676,17 @@ const description =
               plotOver(bx + 1, by + lift, 0.38 * life, 0.58, 0.2);
               plotOver(bx, by, 0.48 * life, 0.58, 0.2);
             }
+          }
+
+          /* 帆船：贴着海面走。深度 v 换算成行 —— 贴着地平线的是远处（小、慢），
+             贴着画面底的是近处（大、快）。随浪起伏的幅度也跟着 v 放大。 */
+          for (let i = 0; i < boats.length; i += 1) {
+            const bt = boats[i];
+            const pad = cols * 0.06;
+            const bx = wrap(bt.x + bt.dir * t * bt.speed + pad, cols + pad * 2) - pad;
+            const row = lerp(horizon + 1, rows - 1.5, Math.pow(bt.v, 1.35));
+            const tilt = Math.sin(t * (0.55 + bt.v) + bt.phase) * (0.45 + bt.v * 1.1);
+            drawBoat(bx, row, Math.max(2.8, cols * 0.021 * (0.45 + bt.v)), bt.dir, life, tilt);
           }
         }
       };
