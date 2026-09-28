@@ -18,6 +18,10 @@
  *      白天（06:00–18:00）太阳走同一条轨道，天光亮起来、星星星云流星一起退场。
  *      两者在 06:00 / 18:00 都贴着地平线，所以是同一套坐标算出来的，接得上。
  *      ?t=HH:MM 可以覆盖本地时间，方便对时。
+ *   3c. 太阳贴近地平线的那两段（日出、日落）另有一档配色：日面放大 1.55 倍、
+ *      天顶转靛、地平线烧成橙、海面接住那条橙色的光路。强度只看「离地平线多近」，
+ *      所以 06:35 和 17:25 是同一个样子。总闸是 GOLD_ENABLED（已开）；
+ *      本地调试可以用 ?gold=1（按时间自动）或 ?gold=0.7（钉死强度）看效果。
  *   4. 每帧给每个格子算一个「亮度 + 色相 + 饱和度」，分十层叠加：
  *        白天的天光 → 星云 → 流星带的雾 → 流星 → 星 → 月/日 → 地平线光带
  *        → 海面（透视压缩的浪 + 日月碎成的一条路）→ 热气球与鸟群 → 帆船
@@ -742,6 +746,31 @@ const description =
         return d;
       };
 
+      /* ---------- 黄金时刻的开关 ----------
+         GOLD_ENABLED = true  —— 全站按访客的本地时间自动出日出日落。
+         GOLD_ENABLED = false —— 整条路都不走，渲染与加这个功能之前逐位一致。
+
+         调试用的 ?gold= 参数只在 GOLD_ENABLED = false 时才有意义：
+           ?gold=1 或 ?gold     —— 强度按本地时间自动
+           ?gold=0.7            —— 把强度钉死在 0.7，方便并排比较不同档位
+         上线之后这个参数被忽略 —— 访客没法自己把黄金时刻摇出来。
+
+         ⚠️ 这个常量必须声明在 goldArg **之前**。原来它放在下面（配色表那一带），
+         压缩器把两个不同作用域里的短名重成了同一个 `_`，`goldArg` 读到的是
+         别处那个变量 —— 结果 `?gold=` 参数时灵时不灵。同名的短变量在打包后
+         会互相遮蔽，这类跨作用域的引用不要留。 */
+      const GOLD_ENABLED: boolean = true; // 上线总闸：全站按本地时间自动出日出日落
+
+      const goldArg: number | 'auto' | null = GOLD_ENABLED
+        ? 'auto'
+        : (() => {
+            const m = /[?&]gold(?:=([\d.]+))?/.exec(location.search);
+            if (!m) return null;
+            if (m[1] === undefined) return 'auto';
+            const v = Number(m[1]);
+            return !Number.isFinite(v) || v >= 1 ? 'auto' : Math.max(0, v);
+          })();
+
       /** 当前时刻在夜里的归一化位置；白天落在 [1, 2) */
       const nightPhase = () => {
         const d = clockNow();
@@ -787,6 +816,8 @@ const description =
         satTop: 0.66,
         satBot: 0.4,
         warm: 0.92, // 地平线往暖里偏多少
+        warmHue: 0.095, // 暖的那一头落在哪个色相（0.095 ≈ 34°，橙）
+        warmSat: 0.22, // 暖的那一头最高能给到多少饱和度
         sea: 2.5, // 海面整体抬亮的倍数
         seaWarm: 0.6, // 海面往暖里偏多少
         fill: 0.85, // 底色渐变的透明度（0 = 不垫）
@@ -795,18 +826,144 @@ const description =
         seaDeep: '#1a4d6b', // 海面底色的最深处
         titleDark: 1, // 标题跟着转深藏蓝
       };
+      type Tone = typeof DAY_TONE;
+
       /* 大气（雾带、地平线光带）的亮度跟着白天配色一起抬。
-         1.06 = 原先那一档的天顶 + 地平线总量，用来把倍率归一到 1。 */
-      const DAY_GAIN = (DAY_TONE.zen + DAY_TONE.hor) / 1.06;
+         1.06 = 原先那一档的天顶 + 地平线总量，用来把倍率归一到 1。
+         每帧取 toneGain(tone)（见 drawScene），黄金时刻用的是它自己那一档。 */
+      const toneGain = (tn: Tone) => (tn.zen + tn.hor) / 1.06;
 
       /** 蓝 → 暖白，返回 [色相, 饱和度]。
           直接插色相会从绿色穿过去（198° → 34° 中间是 115° 的黄绿），
           所以分两段走：先把蓝褪成灰（色相不动、饱和度归零），再给灰染上暖。
-          交接点上饱和度正好是 0，色相怎么跳都看不出来。 */
-      const warmBlend = (hueBase: number, satBase: number, w: number): [number, number] =>
+          交接点上饱和度正好是 0，色相怎么跳都看不出来。
+
+          wHue / wSat 是「暖的那一头」长什么样。默认值就是白天那一档（淡橙、低饱和），
+          黄金时刻会把它们推到深橙 + 高饱和 —— 同一个函数、两套终点。 */
+      const warmBlend = (
+        hueBase: number,
+        satBase: number,
+        w: number,
+        wHue = 0.095,
+        wSat = 0.22,
+      ): [number, number] =>
         w <= 0.5
           ? [hueBase, satBase * (1 - w * 2)]
-          : [lerp(hueBase, 0.095, (w - 0.5) * 2), 0.22 * (w - 0.5) * 2];
+          : [lerp(hueBase, wHue, (w - 0.5) * 2), wSat * (w - 0.5) * 2];
+
+      /* ============================================================
+         日出 / 日落（黄金时刻）
+         ------------------------------------------------------------
+         白天的配色只在「太阳挂高」的时候成立。太阳一贴到地平线，真实世界里
+         发生的是三件事，这里各用一个量去逼近：
+
+           1. 太阳**看起来更大**。大气折射 + 心理上的参照效应，
+              贴着海面的一轮日面比头顶上大得多 —— 这里把日面半径乘 1.55。
+              放大的是**半径**，轨迹和圆心不动，所以升落时刻一点没变。
+           2. 整条地平线**烧起来**。天顶还留着深蓝，越往下越橙 ——
+              所以只把 hueBot 那一头推向暖，hueTop 反而往靛紫里压一点：
+              上冷下暖的落差才是黄昏，两头一起暖就成了一张滤色片。
+              同时把暖的那一头从「淡橙 0.22 饱和」推到「深橙 0.74 饱和」，
+              不然地平线只是一层灰扑扑的米色。
+           3. 海面接住那片橙。底色渐变的底端从暖白换成橙，
+              太阳那条碎光路更宽、更暖、更碎。
+
+         天光本身也要重排：靛 → 紫玫瑰 → 橙 → 亮黄，**四段**。
+         只给「靛 → 橙」两个色标的话，中间会从灰里穿过去，烧不起来。
+
+         goldW = 离地平线有多近。日出段 [0, GOLD_SPAN] 由 1 淡到 0，
+         日落段 [1-GOLD_SPAN, 1] 由 0 淡到 1，两段取大 ——
+         所以 06:40 和 17:20 是同一个强度，日出日落共用一套参数、方向相反。
+
+         开关见下面的 GOLD_ENABLED 与 ?gold= 参数。
+         ============================================================ */
+      const GOLD_SPAN = 0.17; // 黄金时刻各占白天两头多大一段（0.17 ≈ 2 小时）
+      const GOLD_SUN_R = 1.55; // 日面半径的放大倍数
+      const GOLD_SUN_HUE = 0.042; // 日面在黄金时刻的色相（深橙）
+      const GOLD_WARM_HUE = 0.042; // 地平线暖的那一头
+      const GOLD_WARM_SAT = 0.74; // 地平线暖的那一头的饱和度（黄昏该是烧起来的）
+      const GOLD_SKY_MID = '#9a5a86'; // 天空渐变中段：紫玫瑰
+      const GOLD_SKY_DUSK = '#f2a49e'; // 天空渐变下段：暮粉（雾带那一片）
+      const GOLD_SKY_HOR = '#fff0c8'; // 天空渐变贴地平线的那一头：亮奶油黄
+      const GOLD_SEA_MID = '#5b3f63'; // 海面渐变：金带往下沉的紫
+
+      const GOLD_TONE: Tone = {
+        zen: 0.5, // 天顶压暗一点，落差才出得来
+        hor: 1.5, // 地平线更亮：那是太阳沉下去的地方
+        hueTop: 0.655, // 天顶往靛紫里走（黄昏的头顶不是天蓝）
+        hueBot: 0.5,
+        satTop: 0.72,
+        satBot: 0.46,
+        warm: 1, // 暖到顶
+        warmHue: GOLD_WARM_HUE,
+        warmSat: GOLD_WARM_SAT,
+        sea: 2.9,
+        seaWarm: 0.95,
+        fill: 0.85,
+        fillTop: '#2f3d7a', // 底色：天顶（靛）
+        fillBot: '#ffc684', // 底色：地平线（橙）
+        seaDeep: '#2a2f4d', // 海面深处：紫蓝
+        titleDark: 1,
+      };
+
+      /** #rrggbb → [r, g, b] */
+      const hex2rgb = (h: string): [number, number, number] => [
+        parseInt(h.slice(1, 3), 16),
+        parseInt(h.slice(3, 5), 16),
+        parseInt(h.slice(5, 7), 16),
+      ];
+      /** 两个 #rrggbb 之间插值：w = 0 取 a，w = 1 取 b。
+          颜色必须按 **RGB 通道**插，不能按色相插 —— 靛 → 橙的色相路径会穿过绿色。 */
+      const mixHex = (a: string, b: string, w: number): string => {
+        const ca = hex2rgb(a);
+        const cb = hex2rgb(b);
+        let out = '#';
+        for (let i = 0; i < 3; i += 1) {
+          const v = Math.max(0, Math.min(255, Math.round(lerp(ca[i], cb[i], w))));
+          out += v.toString(16).padStart(2, '0');
+        }
+        return out;
+      };
+
+      /** #rrggbb + 透明度 → 'rgba(r, g, b, a)'。
+          黄金时刻的天空渐变要在**竖直方向**上自带一条透明度曲线（下亮上暗），
+          所以不能只靠 ctx.globalAlpha 一个数。 */
+      const rgba = (h: string, a: number): string => {
+        const c = hex2rgb(h);
+        return `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
+      };
+
+      /** 色相从 a 沿**暖的那一边**走到 b，t ∈ [0, 1]。
+          蓝 0.60 → 橙 0.04 直接插会经过 0.32 ≈ 115°（绿）；
+          往暖的方向绕是 0.60 → 0.71（紫）→ 0.82（品红）→ 0.93（红）→ 1.04 = 0.04（橙），
+          正好就是真实日落天空的配色顺序。
+          返回值可能 > 1，hueIdx 自己会取小数部分，所以不用再绕回来。 */
+      const hueArcWarm = (a: number, b: number, t: number) => a + ((b - a + 1) % 1) * t;
+
+      /** 这一帧实际用的配色。
+          goldW ≤ 0.001 时**原样返回 DAY_TONE**（同一个对象引用），
+          所以不带 gold 参数时渲染结果与改动前逐位相同。 */
+      const toneAt = (goldW: number): Tone => {
+        if (goldW <= 0.001) return DAY_TONE;
+        return {
+          zen: lerp(DAY_TONE.zen, GOLD_TONE.zen, goldW),
+          hor: lerp(DAY_TONE.hor, GOLD_TONE.hor, goldW),
+          hueTop: lerp(DAY_TONE.hueTop, GOLD_TONE.hueTop, goldW),
+          hueBot: lerp(DAY_TONE.hueBot, GOLD_TONE.hueBot, goldW),
+          satTop: lerp(DAY_TONE.satTop, GOLD_TONE.satTop, goldW),
+          satBot: lerp(DAY_TONE.satBot, GOLD_TONE.satBot, goldW),
+          warm: lerp(DAY_TONE.warm, GOLD_TONE.warm, goldW),
+          warmHue: lerp(DAY_TONE.warmHue, GOLD_TONE.warmHue, goldW),
+          warmSat: lerp(DAY_TONE.warmSat, GOLD_TONE.warmSat, goldW),
+          sea: lerp(DAY_TONE.sea, GOLD_TONE.sea, goldW),
+          seaWarm: lerp(DAY_TONE.seaWarm, GOLD_TONE.seaWarm, goldW),
+          fill: DAY_TONE.fill,
+          fillTop: mixHex(DAY_TONE.fillTop, GOLD_TONE.fillTop, goldW),
+          fillBot: mixHex(DAY_TONE.fillBot, GOLD_TONE.fillBot, goldW),
+          seaDeep: mixHex(DAY_TONE.seaDeep, GOLD_TONE.seaDeep, goldW),
+          titleDark: DAY_TONE.titleDark,
+        };
+      };
 
       /* 画面三段的分界（占视口高度的比例）：天空 → 流星带 → 海面。
          中间这段就是新长出来的「背景长度」：天和海不再硬碰硬地接在一起，
@@ -988,7 +1145,19 @@ const description =
       let dayFillTop = '#000000';
       let dayFillBot = '#000000';
       let dayFillSeaTop = '#000000';
+      let dayFillSeaMid = '#000000';
       let dayFillSeaDeep = '#000000';
+      /* 黄金时刻的天空要五段（靛 → 紫玫瑰 → 暮红 → 橙 → 亮黄）。
+         mid 为 null 表示「不是黄金时刻」，渐变退回原来那两段 —— 少一次分支判断。 */
+      let dayFillMid: string | null = null;
+      let dayFillDusk = '#000000';
+      let dayFillHor = '#000000';
+      /* 黄金时刻那圈径向辉光的圆心（画布像素）与强度 */
+      let glowX = 0;
+      let glowY = 0;
+      let goldGlow = 0;
+      /* 黄金时刻的「生效程度」= 强度 × 天已经亮了多少（0..1），渐变曲线用它 */
+      let goldMix = 0;
 
       const plot = (x: number, y: number, b: number, h: number, s: number) => {
         if (!(x >= 0 && y >= 0 && x < cols && y < rows)) return;
@@ -1075,9 +1244,17 @@ const description =
         dir: number,
         alpha: number,
         tilt: number,
+        goldW = 0,
       ) => {
         const asp = Math.max(1, aspect);
         const deck = Math.round(cy + tilt);
+        /* 黄金时刻：船体与帆一起往深橙里压，帆的饱和度从「近乎白」抬到 0.48 ——
+           白帆在正午是白的，在夕阳下是被点着的一片橙。 */
+        const hullHue = lerp(0.055, 0.035, goldW);
+        const hullSat = lerp(0.62, 0.8, goldW);
+        const sailHue = lerp(0.1, 0.06, goldW);
+        const sailSat = lerp(0.16, 0.48, goldW);
+        const sailLit = alpha * lerp(1, 0.9, goldW);
         /* ⚠️ 列坐标必须先取整。plotOver 内部是 `intensity[y * cols + x]`，
            拿浮点 x 去索引 Float32Array 是**静默失败**（不报错、也不写入），
            整条船会一个字符都画不出来 —— 第一版就栽在这儿。
@@ -1088,13 +1265,13 @@ const description =
           const f = 1 - (dx / s) * (dx / s);
           const depth = Math.max(0, Math.round((s * 0.62 * f) / asp));
           for (let k = 0; k <= depth; k += 1) {
-            plotOver(cxi + Math.round(dx), deck + k, (0.44 - 0.08 * k) * alpha, 0.055, 0.62);
+            plotOver(cxi + Math.round(dx), deck + k, (0.44 - 0.08 * k) * alpha, hullHue, hullSat);
           }
         }
         const mastH = Math.max(2, Math.round((s * 2.2) / asp));
         // 桅杆：从甲板往上
         for (let k = 1; k <= mastH; k += 1) {
-          plotOver(cxi, deck - k, 0.4 * alpha, 0.055, 0.45);
+          plotOver(cxi, deck - k, 0.4 * alpha, hullHue, lerp(0.45, 0.6, goldW));
         }
         // 主帆：直角三角形。直角边贴着桅杆，斜边从桅顶一路拉到船尾 ——
         // 越往上越窄，所以是「上尖下宽」，不是一块方布
@@ -1102,7 +1279,7 @@ const description =
           const y = deck - k;
           const w = Math.max(1, Math.round((s * 1.5 * (mastH - k)) / mastH));
           for (let j = 1; j <= w; j += 1) {
-            plotOver(cxi + dir * j, y, (1.06 - 0.04 * j) * alpha, 0.1, 0.16);
+            plotOver(cxi + dir * j, y, (1.06 - 0.04 * j) * sailLit, sailHue, sailSat);
           }
         }
         // 前帆：小一号，挂在桅杆另一侧，比主帆再淡一点
@@ -1111,7 +1288,7 @@ const description =
           const y = deck - k;
           const w = Math.max(1, Math.round((s * 0.72 * (jibH - k)) / jibH));
           for (let j = 1; j <= w; j += 1) {
-            plotOver(cxi - dir * j, y, (0.94 - 0.04 * j) * alpha, 0.1, 0.2);
+            plotOver(cxi - dir * j, y, (0.94 - 0.04 * j) * sailLit, sailHue, sailSat * 1.2);
           }
         }
       };
@@ -1318,6 +1495,25 @@ const description =
         const dayPhase = isDay ? nightU - 1 : 0;
         const dayness = isDay ? Math.pow(Math.sin(Math.PI * dayPhase), DAY_CURVE) : 0;
         const sunArc = isDay ? Math.pow(Math.sin(Math.PI * dayPhase), MOON_ARC_POW) : 0;
+
+        /* ---------- 黄金时刻的强度：只看「离地平线多近」 ----------
+           日出段 [0, GOLD_SPAN] 由 1 淡到 0，日落段 [1-GOLD_SPAN, 1] 由 0 淡到 1，
+           两段取大。日落的 dayPhase 是 1（贴地平线），所以 1 - smoothstep 那一支
+           在 17:59 会走到 1；两个边界都是 0，和正午那一段接得上，不会跳。 */
+        const goldW =
+          goldArg === null || !isDay
+            ? 0
+            : goldArg === 'auto'
+              ? Math.max(
+                  1 - smoothstep(0, GOLD_SPAN, dayPhase),
+                  smoothstep(1 - GOLD_SPAN, 1, dayPhase),
+                )
+              : goldArg;
+
+        /* 这一帧的配色与日面半径。goldW = 0 时 tone 就是 DAY_TONE 本身 */
+        const tone = toneAt(goldW);
+        const gain = toneGain(tone);
+        const sunR = moonR * lerp(1, GOLD_SUN_R, goldW);
         const sunXs = cols * lerp(MOON_RISE_X, MOON_SET_X, dayPhase);
         const sunY = lerp(moonLowY, moonTopY, sunArc);
         const sunFade = isDay
@@ -1327,21 +1523,44 @@ const description =
            切换点上两者都是 0（月亮早跑出画面、太阳刚露头），所以不会跳。 */
         const lightXs = isDay ? sunXs : moonXs;
         const lightFade = isDay ? sunFade : moonFade;
-        /* 星星、星云、流星按天光一起退场 */
-        const nightGain = 1 - dayness;
+        /* 星星、星云、流星按天光一起退场。
+           黄金时刻再压一道：地平线烧起来的时候头顶还有满天亮星，那是错的
+           —— 暮色里最先看不见的就是星星。goldW = 0 时这个因子恒等于 1。 */
+        const nightGain = (1 - dayness) * (1 - 0.85 * goldW);
 
-        /* 底色渐变：透明度跟着 dayness 走，夜里是 0（等于没垫） */
-        dayFillAlpha = DAY_TONE.fill * dayness;
-        dayFillTop = DAY_TONE.fillTop;
-        dayFillBot = DAY_TONE.fillBot;
+        /* 底色渐变：透明度跟着 dayness 走，夜里是 0（等于没垫）。
+           黄金时刻再抬一档：日出日落时地平线那一带本来就极亮，而 dayness 是
+           按「太阳高度」算的、此刻还很低 —— 不补这一档，整片天会闷成一层灰褐色
+           （橙色的亮度天生比暖白低，同样的透明度铺上去要暗一大截）。
+           ⚠️ 补的量必须**慢慢起**：dayness 本身在日出后十分钟里就从 0 爬到 0.18，
+           直接乘一个「亮了就补满」的开关，06:00 到 06:10 之间画面会从全黑跳到全亮，
+           看着就是一刀切。所以这里的斜坡从 0.05 拉到 0.34 ——
+           既压住那一刻的硬切，又保证 06:25 之后该亮的都亮到位。 */
+        const fillDay = tone.fill * dayness;
+        goldMix = goldW * smoothstep(0.05, 0.34, dayness);
+        dayFillAlpha = Math.max(fillDay, 0.95 * goldMix);
+        dayFillTop = tone.fillTop;
+        dayFillBot = tone.fillBot;
+        /* 黄金时刻的天空要五段。goldW = 0 时 mid 保持 null，
+           渐变走回原来那两段，和改动前完全一样。 */
+        dayFillMid = goldW > 0.004 ? mixHex(GOLD_SKY_MID, tone.fillBot, goldW) : null;
+        dayFillDusk = goldW > 0.004 ? mixHex(GOLD_SKY_DUSK, tone.fillBot, goldW) : tone.fillBot;
+        dayFillHor = goldW > 0.004 ? mixHex(DAY_TONE.fillBot, GOLD_SKY_HOR, goldW) : tone.fillBot;
+        /* 日头那一圈径向辉光：线性渐变只能按行铺，做不出「亮从日头的位置
+           向两边散开」。强度直接跟着 goldMix 走 —— 它自带「天亮了没有」那条
+           斜坡，所以不会在 06:00 那一刻先冒出一团光。 */
+        glowX = sunXs;
+        glowY = sunY;
+        goldGlow = 0.62 * goldMix;
         /* 海面顶上接住地平线的颜色（那一片在反射天光），往下压到 seaDeep */
-        dayFillSeaTop = DAY_TONE.fillBot;
-        dayFillSeaDeep = DAY_TONE.seaDeep;
+        dayFillSeaTop = dayFillHor;
+        dayFillSeaMid = goldW > 0.004 ? mixHex(GOLD_SEA_MID, tone.seaDeep, goldW) : tone.seaDeep;
+        dayFillSeaDeep = tone.seaDeep;
 
         /* 标题那圈暗色晕罩：白天要淡到没有。
            天亮之后标题自己换成了深蓝，再压一层黑罩反而是把对比度拉低 ——
            深字配亮天本来就清楚，罩子该退场。只在变化超过 0.02 时才写 CSS 变量。 */
-        const toneDark = smoothstep(0.1, 0.55, dayness) * DAY_TONE.titleDark;
+        const toneDark = smoothstep(0.1, 0.55, dayness) * tone.titleDark;
         const haloAlpha = 0.93 * (1 - toneDark);
         const titleGlow = 0.38 * (1 - 0.9 * toneDark);
         if (Math.abs(haloAlpha - lastHalo) > 0.02) {
@@ -1356,25 +1575,47 @@ const description =
         /* ---------- 0) 白天的天光：先把天铺亮，后面几层再叠上去 ----------
            夜里 dayness = 0，这一段整块跳过，代价为零。 */
         if (dayness > 0.004) {
+          /* 黄金时刻：太阳周围的暖晕要更大、更亮，暖色也要顺着天爬得更高 ——
+             黄昏的天是**整片**染过的，不是地平线上一根橙带。
+             下面这几个量在 goldW = 0 时全部退回原值，白天那一档逐位不变。 */
+          const haloW = Math.max(8, cols * lerp(0.17, 0.27, goldW));
+          const haloH = Math.max(6, bandTop * lerp(0.55, 0.9, goldW));
+          const haloK = lerp(1.7, 1.1, goldW);
+          const haloAmp = dayness * lerp(0.3, 0.52, goldW);
+          const warmLo = lerp(0.3, 0.06, goldW); // 暖色从天顶下多远开始铺
           for (let y = 0; y < bandTop; y += 1) {
             const v = y / Math.max(1, bandTop); // 0 天顶 → 1 地平线
-            const base = dayness * (DAY_TONE.zen + DAY_TONE.hor * Math.pow(v, 1.2));
+            const base = dayness * (tone.zen + tone.hor * Math.pow(v, 1.2));
             if (base <= 0.02) continue;
-            /* 地平线那一带往暖白偏：真实白昼的地平线是被大气染过的暖色。
-               色相怎么走由 warmBlend 管（不能直接插值，会从绿色穿过去）。 */
-            const warmAmt = DAY_TONE.warm * smoothstep(0.3, 1, v);
-            const [hueWarm, satWarm] = warmBlend(
-              lerp(DAY_TONE.hueTop, DAY_TONE.hueBot, v),
-              lerp(DAY_TONE.satTop, DAY_TONE.satBot, v),
+            /* 地平线那一带往暖里偏：真实白昼的地平线是被大气染过的暖色。
+               色相怎么走由 warmBlend 管（不能直接插值，会从绿色穿过去）。
+               黄金时刻暖的那一头是深橙 + 高饱和，见 tone.warmHue / tone.warmSat。 */
+            const warmAmt = tone.warm * smoothstep(warmLo, 1, v);
+            const [hueDay, satDay] = warmBlend(
+              lerp(tone.hueTop, tone.hueBot, v),
+              lerp(tone.satTop, tone.satBot, v),
               warmAmt,
+              tone.warmHue,
+              tone.warmSat,
+            );
+            /* 黄金时刻的色相改走「暖的那条弧」：靛 → 紫 → 品红 → 红 → 橙。
+               warmBlend 是**直线**插值，靛 0.57 到橙 0.04 的中点是 0.30 ≈ 110°（绿），
+               白天那一档 warmSat 只有 0.22、绿被低饱和压住看不出来；
+               黄金时刻要烧起来，一插就露出一圈绿。goldW = 0 时两项原样退回。 */
+            const goldT = smoothstep(warmLo, 1, v);
+            const hueMix = lerp(hueDay, hueArcWarm(tone.hueTop, tone.warmHue, goldT), goldW);
+            const satMix = lerp(
+              satDay,
+              lerp(lerp(tone.satTop, tone.satBot, v), 0.34, goldT),
+              goldW,
             );
             for (let x = 0; x < cols; x += 1) {
               const idx = y * cols + x;
               /* 太阳周围把天光本身抬起来，而不是画一个硬边光晕 ——
                  1/(1+d²) 比 exp 便宜，形状几乎一样。 */
-              const dsx = (x - sunXs) / Math.max(8, cols * 0.17);
-              const dsy = (y - sunY) / Math.max(6, bandTop * 0.55);
-              const halo = 1 / (1 + (dsx * dsx + dsy * dsy) * 1.7);
+              const dsx = (x - sunXs) / haloW;
+              const dsy = (y - sunY) / haloH;
+              const halo = 1 / (1 + (dsx * dsx + dsy * dsy) * haloK);
               const n = valueNoise(x * 0.03 + 3.1, y * 0.045 + 7.7);
               /* 再叠一层低频：白天要是只有一层细颗粒，天就成了一张均匀的网。
                  这一层频率低得多，起伏就是「云的块」。 */
@@ -1383,12 +1624,13 @@ const description =
                  平滑的梯度会让同一行每格都挑到同一种字，几十行叠起来就是一道道横纹
                  （看着像扫描线）。逐格抖一下把行打断，纹理才是散开的。 */
               const jitter = (hash2(x * 7 + 3, y * 11 + 5) - 0.5) * 0.22;
-              const b = base * (0.7 + 0.28 * n + 0.36 * n2) + dayness * 0.3 * halo + jitter;
+              const b = base * (0.7 + 0.28 * n + 0.36 * n2) + haloAmp * halo + jitter;
               if (b <= intensity[idx]) continue;
               intensity[idx] = b;
-              // 太阳附近再往暖里偏一点
-              hueBuf[idx] = hueWarm - halo * 0.07 + (n2 - 0.5) * 0.03;
-              satBuf[idx] = satWarm - halo * 0.16;
+              /* 太阳附近再往暖里偏一点。黄金时刻偏得更多，而且**别把饱和度洗掉** ——
+                 白天的晕是「发白」，黄昏的晕是「发橙」，方向正好相反。 */
+              hueBuf[idx] = hueMix - halo * lerp(0.07, 0.16, goldW) + (n2 - 0.5) * 0.03;
+              satBuf[idx] = satMix - halo * lerp(0.16, 0.04, goldW);
             }
           }
         }
@@ -1422,19 +1664,41 @@ const description =
           // 白天这一段跟着天光一起亮：它本来就是「大气的厚度」，天亮它就该亮
           const mist =
             (0.03 + 0.13 * Math.pow(v, 1.5)) * 0.9 +
-            dayness * DAY_GAIN * 0.36 * Math.pow(v, 1.1);
+            dayness * gain * lerp(0.36, 0.95, goldW) * Math.pow(v, 1.1);
           const ny = y * 0.05;
           /* 从上到下由紫转青：接住上面的星云，也接住下面的地平线。
              白天整段往天光那支蓝里靠，越贴近地平线越暖（warmBlend 管色相路径）。 */
-          const warmAmt = DAY_TONE.warm * smoothstep(0.25, 1, v);
-          const [dayHue, daySat] = warmBlend(0.565, 0.38, warmAmt);
-          const mistHue = lerp(lerp(0.72, 0.545, v), dayHue, dayness * 0.8);
-          const mistSat = lerp(0.52, daySat, dayness);
+          const warmAmt = tone.warm * smoothstep(0.25, 1, v);
+          const [dayHue, daySat] = warmBlend(
+            0.565,
+            0.38,
+            warmAmt,
+            tone.warmHue,
+            tone.warmSat,
+          );
+          /* 黄金时刻：整条雾带从带顶的紫一路烧到地平线的橙，同样走「暖的那条弧」。
+             这一段是画面里最大的一片，直线插值留下的绿在这里最显眼。 */
+          const mistHue = lerp(
+            lerp(lerp(0.72, 0.545, v), dayHue, dayness * 0.8),
+            hueArcWarm(0.72, tone.warmHue, v),
+            goldW,
+          );
+          const mistSat = lerp(
+            lerp(0.52, daySat, dayness),
+            lerp(0.2, 0.4, v),
+            goldW,
+          );
           for (let x = 0; x < cols; x += 1) {
             const nx = (x + drift * 0.3) * 0.021;
             const n =
               valueNoise(nx, ny + 3.3) * 0.62 + valueNoise(nx * 2.1 + 9.7, ny * 2.2) * 0.38;
-            const b = mist * (0.35 + 1.05 * n);
+            /* 黄金时刻：太阳那一侧的雾被点着。整条雾带要是只按行变化，
+               就会变成一条平的「纸板」—— 真实日出里那片亮是从日头的位置
+               向两边铺开的，所以这里加一个横向的高斯，中心钉在 sunXs 上。 */
+            const dsx = (x - sunXs) / Math.max(12, cols * 0.42);
+            const nearSun = goldW > 0.004 ? Math.exp(-dsx * dsx) : 0;
+            const b =
+              mist * (0.35 + 1.05 * n) * (1 + goldW * 1.7 * nearSun * (0.4 + 0.6 * v));
             if (b <= 0.012) continue;
             plot(x, y, b, mistHue, mistSat);
           }
@@ -1519,26 +1783,46 @@ const description =
           }
         }
 
-        /* ---------- 5b) 太阳：白天的光源，和月亮同一条轨道、同一个大小 ----------
+        /* ---------- 5b) 太阳：白天的光源，和月亮同一条轨道 ----------
            颜色要的是**高饱和 + 高亮度**，不是低饱和。
            调色板的亮度上限只有 80%，低饱和的暖色落在这里就是一块土褐色的盘子；
-           hsl(45, 100%, 69%) 才是那种金黄 —— 靠饱和度把它顶上去。 */
-        if (sunFade > 0.01) {
-          const sy0 = Math.max(0, Math.floor(sunY - moonR * aspect - 2));
-          const sy1 = Math.min(rows - 1, Math.ceil(sunY + moonR * aspect + 2));
-          const sx0 = Math.max(0, Math.floor(sunXs - moonR - 2));
-          const sx1 = Math.min(cols - 1, Math.ceil(sunXs + moonR + 2));
+           hsl(45, 100%, 69%) 才是那种金黄 —— 靠饱和度把它顶上去。
+
+           黄金时刻变三件事：
+             · 半径 ×1.55 —— 贴着地平线的一轮日面看起来就是更大（大气折射 + 参照效应）。
+               放大的是半径，圆心和轨迹不动，所以升落时刻一点没变。
+            · 色相从金黄压到深橙，外圈的辉光更宽更亮。
+              但**中心仍然要留一点「白热」**：调色板的亮度上限只有 80%，
+              一整轮都是高饱和的橙，摆在同样橙色的天空里就糊成一团、看不出是太阳。
+              中心降饱和（0.30）拿到接近奶白的那一格，边缘留满饱和的橙，
+              圆盘内部才有层次，也才压得住背景。 */        if (sunFade > 0.01) {
+          /* 中心偏黄白、边缘深橙 —— 两个色相在圆盘里插值，
+             所以低垂的太阳既烧得起来，圆心又不会被橙色背景吞掉。 */
+          const sunHue = lerp(0.125, GOLD_SUN_HUE, goldW);
+          const sunHueCore = lerp(0.125, 0.105, goldW);
+          const satEdge = lerp(0.98, 1, goldW);
+          const satCore = lerp(0.98 - 0.42, 0.18, goldW);
+          const sy0 = Math.max(0, Math.floor(sunY - sunR * aspect - 2));
+          const sy1 = Math.min(rows - 1, Math.ceil(sunY + sunR * aspect + 2));
+          const sx0 = Math.max(0, Math.floor(sunXs - sunR - 2));
+          const sx1 = Math.min(cols - 1, Math.ceil(sunXs + sunR + 2));
           for (let y = sy0; y <= sy1; y += 1) {
             for (let x = sx0; x <= sx1; x += 1) {
-              const d = Math.hypot(x - sunXs, (y - sunY) * aspect) / moonR;
+              const d = Math.hypot(x - sunXs, (y - sunY) * aspect) / sunR;
               if (d <= 1) {
                 /* 中心偏白、边缘偏金：亮度被调色板压在 80% 以下，
-                   「白热」只能靠**降饱和**做 —— 中心 0.56、边缘 0.98。 */
+                   「白热」只能靠**降饱和**做 —— 白天中心 0.56、边缘 0.98。 */
                 const core = 1 - d * d;
-                plot(x, y, 1.08 * (0.86 + 0.24 * core) * sunFade, 0.125, 0.98 - 0.42 * core);
+                plot(
+                  x,
+                  y,
+                  1.08 * (0.86 + 0.24 * core) * sunFade,
+                  sunHue + (sunHueCore - sunHue) * core,
+                  satEdge - (satEdge - satCore) * core,
+                );
               } else if (d < 1.95) {
-                const g = Math.pow(1 - (d - 1) / 0.95, 2.2) * 0.5 * sunFade;
-                if (g > 0.02) plot(x, y, g, 0.1, 0.46);
+                const g = Math.pow(1 - (d - 1) / 0.95, 2.2) * lerp(0.5, 0.8, goldW) * sunFade;
+                if (g > 0.02) plot(x, y, g, lerp(0.1, 0.055, goldW), lerp(0.46, 0.74, goldW));
               }
             }
           }
@@ -1549,13 +1833,19 @@ const description =
           const g = Math.exp(-Math.pow((y - horizon - 0.2) / 0.95, 2));
           if (g < 0.01) continue;
           const above = clamp((horizon - y) / 5, 0, 1);
-          /* 白天这条光带跟着天光一起抬起来，并往暖白偏 —— 夜里那条是冷青的。
-             暖白同样要先把饱和度压掉，不然色相从青走到暖会经过绿色。 */
-          const glow = g * lerp(0.66, 0.36, above) + g * dayness * DAY_GAIN * 0.2;
+          /* 白天这条光带跟着天光一起抬起来，并往暖里偏 —— 夜里那条是冷青的。
+             暖的那一头同样要先把饱和度压掉，不然色相从青走到暖会经过绿色。
+             黄金时刻把它整个烧起来：亮度翻倍、色相推到深橙、饱和度拉到 0.8。 */
+          const glow = g * lerp(0.66, 0.36, above) + g * dayness * gain * lerp(0.2, 0.62, goldW);
           const nightH = lerp(0.505, 0.77, above * 0.85);
-          const [dayH, dayS] = warmBlend(0.565, 0.34, DAY_TONE.warm);
-          const h = lerp(nightH, dayH, dayness * 0.8);
-          const s = lerp(lerp(0.42, 0.56, above), dayS, dayness);
+          const [dayH, dayS] = warmBlend(0.565, 0.34, tone.warm, tone.warmHue, tone.warmSat);
+          /* ⚠️ 色相只能**往暖的那一头降**：青 0.505 → 橙 0.042 的中点是
+             0.27 ≈ 97°，那是绿色。白天那一档 warmSat 只有 0.22，绿被低饱和压住
+             看不出来；黄金时刻要烧起来，一插就露出一条绿带。
+             所以黄金时刻的色相直接取 tone.warmHue，按 goldW 挪过去 ——
+             从 0.40 一路降到 0.04 走的是黄 → 橙，不经过绿。 */
+          const h = lerp(lerp(nightH, dayH, dayness * 0.8), tone.warmHue, goldW);
+          const s = lerp(lerp(0.42, 0.56, above), lerp(dayS, 0.85, goldW), dayness);
           for (let x = 0; x < cols; x += 1) {
             // 沿线明暗不均，才像一条被水汽切碎的光，而不是拿尺子画的一根亮线
             const mod =
@@ -1582,14 +1872,21 @@ const description =
           // 浪与浪之间的水面压得很暗：对比度越高，越像一片有深度的水
           const band =
             (0.02 + 0.26 * haze) * (0.75 + 0.25 * Math.sin(v * 9 - t * 0.45)) * (1 - 0.5 * near) +
-            dayness * DAY_TONE.sea * (0.13 + 0.24 * haze); // 白天整片水面抬亮：亮天配黑海，反差会假
-          const rowHue = lerp(0.5 + 0.105 * near, 0.552, dayness * 0.65); // 近处的蓝更深
+            dayness * tone.sea * (0.13 + 0.24 * haze); // 白天整片水面抬亮：亮天配黑海，反差会假
+          /* 近处的蓝更深。黄金时刻整片水再往紫里沉一点（0.62 ≈ 223°，蓝紫）——
+             被夕阳照着的水是「暖天 + 冷海」的对比，不是整片染橙。 */
+          const rowHue = lerp(
+            lerp(0.5 + 0.105 * near, 0.552, dayness * 0.65),
+            0.62,
+            goldW * 0.3,
+          );
           const rowSat = lerp(
             0.34 + 0.3 * near,
-            lerp(0.3, 0.22, DAY_TONE.seaWarm),
+            lerp(0.3, 0.22, tone.seaWarm),
             dayness * 0.6,
           ); // 近处更饱和，远处更灰；白天再退一点饱和，才像被阳光晒过的水
-          const spread = 4 + 28 * near; // 那条光路越近越宽
+          // 那条光路越近越宽；太阳低垂时水面接住的是一整条路，不是一条线
+          const spread = (4 + 28 * near) * lerp(1, 1.55, goldW);
           // 浪尖：近处又亮又宽；远处淡到只剩雾，免得高频波纹在远处糊成噪点
           const crestGain = (0.25 + 0.78 * near) * smoothstep(0, 0.28, v);
 
@@ -1619,7 +1916,7 @@ const description =
               (0.18 + 0.72 * near) *
               shimmer *
               lightFade *
-              (1 + dayness * 0.55); // 日头比月亮烈，碎光也更碎更亮
+              (1 + dayness * lerp(0.55, 1.05, goldW)); // 日头比月亮烈，碎光也更碎更亮；贴着海面的日头最烈
 
             // 远处的光雾也要有横向的疏密，否则地平线下面会是一条平滑的色带
             const farPatch = 0.55 + 0.9 * valueNoise(x * 0.06 + 5.1, v * 26 + 11.3);
@@ -1631,8 +1928,9 @@ const description =
             let s = rowSat;
             if (glitter > 0.03) {
               const g = clamp(glitter * 2.6, 0, 1);
-              h = lerp(rowHue, 0.125, g); // 碎在浪尖上的光（月/日）都是暖的
-              s = lerp(rowSat, lerp(0.36, 0.22, dayness), g);
+              // 碎在浪尖上的光（月/日）都是暖的；黄金时刻这条路一直暖到深橙
+              h = lerp(rowHue, lerp(0.125, 0.05, goldW), g);
+              s = lerp(rowSat, lerp(lerp(0.36, 0.22, dayness), 0.92, goldW), g);
             }
             if (crest > 0.72) {
               s = lerp(s, 0.18, ((crest - 0.72) / 0.28) * 0.8); // 浪沫偏白
@@ -1657,7 +1955,7 @@ const description =
             const pad = bl.r * 4; // 两端留出余量，好让它整个飘出去再绕回来
             const bx = wrap(bl.x - t * bl.speed + pad, cols + pad * 2) - pad;
             const by = bl.y + Math.sin(t * 0.24 + bl.bob) * 1.6;
-            drawBalloon(bx, by, bl.r, bl.hue, bl.hue2, life);
+            drawBalloon(bx, by, bl.r, bl.hue, bl.hue2, life * lerp(1, 0.88, goldW));
           }
           for (let i = 0; i < flocks.length; i += 1) {
             const f = flocks[i];
@@ -1686,7 +1984,7 @@ const description =
             const bx = wrap(bt.x + bt.dir * t * bt.speed + pad, cols + pad * 2) - pad;
             const row = lerp(horizon + 1, rows - 1.5, Math.pow(bt.v, 1.35));
             const tilt = Math.sin(t * (0.55 + bt.v) + bt.phase) * (0.45 + bt.v * 1.1);
-            drawBoat(bx, row, Math.max(2.8, cols * 0.021 * (0.45 + bt.v)), bt.dir, life, tilt);
+            drawBoat(bx, row, Math.max(2.8, cols * 0.021 * (0.45 + bt.v)), bt.dir, life, tilt, goldW);
           }
         }
       };
@@ -1710,9 +2008,25 @@ const description =
         if (dayFillAlpha > 0.004) {
           const skyPx = Math.max(1, horizon * cellH);
           const g = ctx.createLinearGradient(0, 0, 0, skyPx);
+          const skyMid = Math.min(0.95, bandTop / Math.max(1, horizon));
           g.addColorStop(0, dayFillTop);
-          g.addColorStop(Math.min(0.95, bandTop / Math.max(1, horizon)), dayFillBot);
-          g.addColorStop(1, dayFillBot);
+          if (dayFillMid) {
+            /* 黄金时刻的天是**五段**的：靛 → 紫玫瑰 → 暮粉 → 橙 → 亮黄。
+               只给「靛 → 橙」两个色标的话，中间会从灰里穿过去，烧不起来；
+               而如果橙占得太宽（原来 fillBot 从 0.714 一直铺到底），
+               雾带那一片就成了一条平坦的「纸板」—— 所以把橙压到 0.9 以后，
+               最亮的亮黄只留在地平线那一线，形成一条贴着海面的光。
+               每段还带自己的透明度：下亮上暗，天顶才不会被一起冲淡。
+               注意这是 RGB 插值，不是色相插值 —— 色相从 216° 走到 34° 会经过绿色。 */
+            g.addColorStop(0, rgba(dayFillTop, lerp(1, 0.42, goldMix)));
+            g.addColorStop(0.42, rgba(dayFillMid, lerp(1, 0.7, goldMix)));
+            g.addColorStop(skyMid, rgba(dayFillDusk, lerp(1, 0.92, goldMix)));
+            g.addColorStop(0.9, rgba(dayFillBot, 1));
+            g.addColorStop(1, rgba(dayFillHor, 1));
+          } else {
+            g.addColorStop(skyMid, dayFillBot);
+            g.addColorStop(1, dayFillBot);
+          }
           ctx.globalAlpha = dayFillAlpha;
           ctx.fillStyle = g;
           ctx.fillRect(0, 0, W, skyPx);
@@ -1722,12 +2036,37 @@ const description =
           const seaTop = Math.max(0, Math.min(H - 1, Math.floor(horizon * cellH)));
           const g2 = ctx.createLinearGradient(0, seaTop, 0, H);
           g2.addColorStop(0, dayFillSeaTop);
-          g2.addColorStop(0.16, dayFillSeaDeep);
-          g2.addColorStop(1, dayFillSeaDeep);
+          if (dayFillMid) {
+            /* 黄金时刻的海面：贴着地平线是一条被日头点着的金带，往下很快沉进紫蓝。
+               所以中间多一个色标 —— 暖色只留在最上面那一小段，
+               再往下就是水的本色，不然整片海会糊成一块橙。 */
+            g2.addColorStop(0.055, dayFillBot);
+            g2.addColorStop(0.14, dayFillSeaMid);
+            g2.addColorStop(1, dayFillSeaDeep);
+          } else {
+            g2.addColorStop(0.16, dayFillSeaDeep);
+            g2.addColorStop(1, dayFillSeaDeep);
+          }
           ctx.globalAlpha = dayFillAlpha * 0.72;
           ctx.fillStyle = g2;
           ctx.fillRect(0, seaTop, W, H - seaTop);
           ctx.globalAlpha = 1;
+
+          /* 黄金时刻再叠一层以日头为圆心的径向辉光 —— 整片天被日头点亮的那一圈。
+             放在字符之前画，所以它垫在字的下面，只负责把底色推暖推亮。 */
+          if (goldGlow > 0.004) {
+            const cx = glowX * cellW;
+            const cy = glowY * cellH;
+            const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.66);
+            rg.addColorStop(0, 'rgba(255,232,178,0.9)');
+            rg.addColorStop(0.3, 'rgba(255,176,96,0.44)');
+            rg.addColorStop(0.62, 'rgba(255,140,74,0.16)');
+            rg.addColorStop(1, 'rgba(255,120,60,0)');
+            ctx.globalAlpha = goldGlow;
+            ctx.fillStyle = rg;
+            ctx.fillRect(0, 0, W, H);
+            ctx.globalAlpha = 1;
+          }
         }
 
         const ramp = RAMPS[mode];
